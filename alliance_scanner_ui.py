@@ -459,7 +459,7 @@ class App(customtkinter.CTk):
             self.wait_window(dia)
 
         self.title("Alliance Scanner by Cyrexxis")
-        self.geometry("560x390")
+        self.geometry("560x420")
         self.grid_columnconfigure(0, weight=4)
         self.grid_columnconfigure(1, weight=2)
         self.grid_rowconfigure(0, weight=1)
@@ -502,6 +502,10 @@ class App(customtkinter.CTk):
 
         self.current_state = customtkinter.CTkLabel(self, text="Not started", height=1)
         self.current_state.grid(row=2, column=1, padx=10, pady=(10, 0), sticky="ewns")
+
+        self.progress_bar = customtkinter.CTkProgressBar(self)
+        self.progress_bar.grid(row=3, column=0, columnspan=2, padx=10, pady=10, sticky="ew")
+        self.progress_bar.set(0)
 
     def close_program(self):
         self.quit()
@@ -569,6 +573,15 @@ class App(customtkinter.CTk):
         )
 
         self.last_batch_frame.set(batch_data)
+        total_pages = extra_data.target_governor // extra_data.govs_per_page
+        if extra_data.target_governor % extra_data.govs_per_page != 0:
+            total_pages += 1
+        self.update_progress(extra_data.current_page, total_pages)
+
+    def update_progress(self, current_page, total_pages):
+        progress = current_page / total_pages
+        self.progress_bar.set(progress)
+        self.update_idletasks()
 
     def state_callback(self, state):
         self.current_state.configure(text=state)

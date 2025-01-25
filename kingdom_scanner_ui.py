@@ -622,7 +622,7 @@ class App(customtkinter.CTk):
             self.wait_window(dia)
 
         self.title("Kingdom Scanner by Cyrexxis")
-        self.geometry("800x590")
+        self.geometry("800x620")
         self.grid_columnconfigure(0, weight=1)
         self.grid_columnconfigure(1, weight=2)
         self.grid_columnconfigure(2, weight=2)
@@ -718,6 +718,10 @@ class App(customtkinter.CTk):
 
         self.current_state = customtkinter.CTkLabel(self, text="Not started", height=1)
         self.current_state.grid(row=1, column=3, padx=10, pady=(10, 0), sticky="ewns")
+
+        self.progress_bar = customtkinter.CTkProgressBar(self)
+        self.progress_bar.grid(row=2, column=0, columnspan=4, padx=10, pady=10, sticky="ew")
+        self.progress_bar.set(0)
 
     def ask_confirm(self, msg) -> bool:
         result = ConfirmDialog("No Governor found", msg, "200x110").get_input()
@@ -821,6 +825,12 @@ class App(customtkinter.CTk):
                 "eta": extra_data.eta(),
             }
         )
+        self.update_progress(extra_data.current_governor, extra_data.target_governor)
+
+    def update_progress(self, current_governor, target_governor):
+        progress = current_governor / target_governor
+        self.progress_bar.set(progress)
+        self.update_idletasks()
 
     def state_callback(self, state):
         self.current_state.configure(text=state)
