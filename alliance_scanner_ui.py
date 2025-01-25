@@ -27,6 +27,7 @@ import os
 import sys
 import threading
 import tkinter.messagebox as messagebox
+import datetime
 
 from dummy_root import get_app_root
 from roktracker.utils.validator import sanitize_scanname, validate_installation
@@ -529,12 +530,13 @@ class App(customtkinter.CTk):
             self.alliance_scanner.set_state_callback(self.state_callback)
             self.options_frame.set_uuid(self.alliance_scanner.run_id)
 
+            logger.info(f"Scan started at {datetime.datetime.now()}")
             self.alliance_scanner.start_scan(
                 options["name"], options["amount"], options["formats"]
             )
         except AdbError as error:
             logger.error(
-                "ADB connection error: " + str(error)
+                f"ADB connection error at {datetime.datetime.now()}: " + str(error)
             )
             InfoDialog(
                 "ADB Connection Error",
@@ -546,7 +548,7 @@ class App(customtkinter.CTk):
             messagebox.showerror("Error", "ADB Connection Error: " + str(error))
         except ConfigError as error:
             logger.error(
-                "Configuration error: " + str(error)
+                f"Configuration error at {datetime.datetime.now()}: " + str(error)
             )
             InfoDialog(
                 "Configuration Error",
@@ -558,7 +560,7 @@ class App(customtkinter.CTk):
             messagebox.showerror("Error", "Configuration Error: " + str(error))
         except Exception as error:
             logger.error(
-                "Unexpected error: " + str(error)
+                f"Unexpected error at {datetime.datetime.now()}: " + str(error)
             )
             InfoDialog(
                 "Unexpected Error",
@@ -569,6 +571,7 @@ class App(customtkinter.CTk):
             self.state_callback("Not started")
             messagebox.showerror("Error", "Unexpected Error: " + str(error))
         else:
+            logger.info(f"Scan completed at {datetime.datetime.now()}")
             messagebox.showinfo("Scan Complete", "The scan has been completed successfully.")
         finally:
             # Reset end scan button
