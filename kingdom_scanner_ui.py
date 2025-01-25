@@ -30,6 +30,7 @@ import threading
 import tkinter.messagebox as messagebox
 import datetime
 import csv
+import tkinter.simpledialog as simpledialog
 
 from dummy_root import get_app_root
 from roktracker.kingdom.additional_data import AdditionalData
@@ -597,25 +598,6 @@ class LastGovernorInfo(customtkinter.CTkFrame):
                 self.additional_stats.set_var(key, value)
 
 
-class ScanHistory:
-    def __init__(self):
-        self.history = []
-
-    def add_scan(self, scan_data):
-        self.history.append(scan_data)
-
-    def export_to_csv(self, filename):
-        keys = self.history[0].keys()
-        with open(filename, 'w', newline='') as output_file:
-            dict_writer = csv.DictWriter(output_file, fieldnames=keys)
-            dict_writer.writeheader()
-            dict_writer.writerows(self.history)
-
-    def get_history(self):
-        return self.history
-
-scan_history = ScanHistory()
-
 class App(customtkinter.CTk):
     def __init__(self):
         super().__init__()
@@ -644,7 +626,7 @@ class App(customtkinter.CTk):
             self.wait_window(dia)
 
         self.title("Kingdom Scanner by Cyrexxis")
-        self.geometry("800x680")
+        self.geometry("800x640")
         self.grid_columnconfigure(0, weight=1)
         self.grid_columnconfigure(1, weight=2)
         self.grid_columnconfigure(2, weight=2)
@@ -747,12 +729,6 @@ class App(customtkinter.CTk):
         self.progress_bar.grid(row=3, column=0, columnspan=4, padx=10, pady=10, sticky="ew")
         self.progress_bar.set(0)
 
-        self.view_history_button = customtkinter.CTkButton(self, text="View Scan History", command=self.view_scan_history)
-        self.view_history_button.grid(row=2, column=1, padx=10, pady=10, sticky="ew")
-
-        self.export_history_button = customtkinter.CTkButton(self, text="Export Scan History", command=self.export_scan_history)
-        self.export_history_button.grid(row=2, column=2, padx=10, pady=10, sticky="ew")
-
     def ask_confirm(self, msg) -> bool:
         result = ConfirmDialog("No Governor found", msg, "200x110").get_input()
         self.focus()
@@ -802,24 +778,6 @@ class App(customtkinter.CTk):
                 options["power_threshold"],
                 options["formats"],
             )
-
-            # Add scan to history
-            scan_history.add_scan({
-                "uuid": options["uuid"],
-                "name": options["name"],
-                "amount": options["amount"],
-                "resume": options["resume"],
-                "adv_scroll": options["adv_scroll"],
-                "inactives": options["inactives"],
-                "validate_kills": options["validate_kills"],
-                "reconstruct": options["reconstruct"],
-                "validate_power": options["validate_power"],
-                "power_threshold": options["power_threshold"],
-                "info_time": options["info_time"],
-                "gov_time": options["gov_time"],
-                "formats": options["formats"].__dict__,  # Fix here
-                "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            })
 
         except AdbError as error:
             logger.error(
@@ -910,17 +868,6 @@ class App(customtkinter.CTk):
 
     def state_callback(self, state):
         self.current_state.configure(text=state)
-
-    def view_scan_history(self):
-        history = scan_history.get_history()
-        history_str = "\n".join([str(scan) for scan in history])
-        InfoDialog("Scan History", history_str, "600x400")
-
-    def export_scan_history(self):
-        filename = customtkinter.filedialog.asksaveasfilename(defaultextension=".csv", filetypes=[("CSV files", "*.csv")])
-        if filename:
-            scan_history.export_to_csv(filename)
-            messagebox.showinfo("Export Complete", f"Scan history exported to {filename}")
 
 app = App()
 app.report_callback_exception = ex_handler.handle_exception

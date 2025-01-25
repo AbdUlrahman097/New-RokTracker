@@ -8,7 +8,7 @@ from roktracker.utils.exception_handling import GuiExceptionHandler
 from roktracker.utils.exceptions import AdbError, ConfigError
 from roktracker.utils.general import is_string_int, load_config
 from roktracker.utils.gui import InfoDialog
-from roktracker.utils.output_formats import OutputFormats
+# from roktracker.utils.output_formats import OutputFormats
 
 logging.basicConfig(
     filename=str(get_app_root() / "alliance-scanner.log"),
@@ -29,6 +29,7 @@ import threading
 import tkinter.messagebox as messagebox
 import datetime
 import csv
+import tkinter.simpledialog as simpledialog
 
 from dummy_root import get_app_root
 from roktracker.utils.validator import sanitize_scanname, validate_installation
@@ -434,25 +435,6 @@ class LastBatchInfo(customtkinter.CTkFrame):
                 self.additional_stats.set_var(key, value)
 
 
-class ScanHistory:
-    def __init__(self):
-        self.history = []
-
-    def add_scan(self, scan_data):
-        self.history.append(scan_data)
-
-    def export_history(self, file_path):
-        with open(file_path, 'w', newline='') as csvfile:
-            fieldnames = ['uuid', 'name', 'port', 'amount', 'formats', 'timestamp']
-            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-            writer.writeheader()
-            for scan in self.history:
-                writer.writerow(scan)
-
-    def view_history(self):
-        return self.history
-
-
 class App(customtkinter.CTk):
     def __init__(self):
         super().__init__()
@@ -481,7 +463,7 @@ class App(customtkinter.CTk):
             self.wait_window(dia)
 
         self.title("Alliance Scanner by Cyrexxis")
-        self.geometry("560x460")
+        self.geometry("560x440")
         self.grid_columnconfigure(0, weight=4)
         self.grid_columnconfigure(1, weight=2)
         self.grid_rowconfigure(0, weight=1)
@@ -532,18 +514,6 @@ class App(customtkinter.CTk):
         self.progress_bar.grid(row=3, column=0, columnspan=2, padx=10, pady=10, sticky="ew")
         self.progress_bar.set(0)
 
-        self.scan_history = ScanHistory()
-
-        self.view_history_button = customtkinter.CTkButton(
-            self, text="View History", command=self.view_history
-        )
-        self.view_history_button.grid(row=3, column=0, padx=10, pady=10, sticky="ew")
-
-        self.export_history_button = customtkinter.CTkButton(
-            self, text="Export History", command=self.export_history
-        )
-        self.export_history_button.grid(row=3, column=1, padx=10, pady=10, sticky="ew")
-
     def close_program(self):
         self.quit()
 
@@ -569,14 +539,6 @@ class App(customtkinter.CTk):
             self.alliance_scanner.start_scan(
                 options["name"], options["amount"], options["formats"]
             )
-            self.scan_history.add_scan({
-                "uuid": options["uuid"],
-                "name": options["name"],
-                "port": options["port"],
-                "amount": options["amount"],
-                "formats": options["formats"].to_dict(),
-                "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            })
         except AdbError as error:
             logger.error(
                 f"ADB connection error at {datetime.datetime.now()}: " + str(error)
@@ -659,16 +621,24 @@ class App(customtkinter.CTk):
     def state_callback(self, state):
         self.current_state.configure(text=state)
 
-    def view_history(self):
-        history = self.scan_history.view_history()
-        history_str = "\n".join([str(scan) for scan in history])
-        InfoDialog("Scan History", history_str, "600x400")
 
-    def export_history(self):
-        file_path = customtkinter.filedialog.asksaveasfilename(defaultextension=".csv")
-        if file_path:
-            self.scan_history.export_history(file_path)
-            messagebox.showinfo("Export Complete", "Scan history exported successfully.")
+class OutputFormats:
+    def __init__(self):
+        self.xlsx = False
+        self.csv = False
+        self.jsonl = False
+
+    def from_dict(self, data):
+        self.xlsx = data.get("xlsx", False)
+        self.csv = data.get("csv", False)
+        self.jsonl = data.get("jsonl", False)
+
+    def to_dict(self):
+        return {
+            "xlsx": self.xlsx,
+            "csv": self.csv,
+            "jsonl": self.jsonl,
+        }
 
 
 app = App()
