@@ -110,6 +110,15 @@ class CheckboxFrame(customtkinter.CTkTabview):
             values.update({checkbox.cget("text"): checkbox.get()})
         return values
 
+    def set(self, preferences):
+        for checkbox in self.checkboxes:
+            checkbox_name = checkbox.cget("text")
+            if checkbox_name in preferences:
+                if preferences[checkbox_name]:
+                    checkbox.select()
+                else:
+                    checkbox.deselect()
+
 
 class HorizontalCheckboxFrame(customtkinter.CTkTabview):
     def __init__(self, master, values, groupName, options_per_row):
@@ -490,12 +499,23 @@ class ScanOptionsFrame(customtkinter.CTkFrame):
             row=2, column=0, padx=10, pady=(0, 10), sticky="ewsn"
         )
 
+        self.save_button = customtkinter.CTkButton(
+            self, text="Save Preferences", command=self.save_preferences
+        )
+        self.save_button.grid(row=3, column=0, padx=10, pady=10, sticky="ew")
+
     def get(self):
         options = {}
         options.update(self.first_screen_options_frame.get())
         options.update(self.second_screen_options_frame.get())
         options.update(self.third_screen_options_frame.get())
         return options
+
+    def save_preferences(self):
+        preferences = self.get()
+        with open("scan_preferences.json", "w") as f:
+            json.dump(preferences, f)
+        messagebox.showinfo("Preferences Saved", "Your scan preferences have been saved.")
 
 
 class AdditionalStatusInfo(customtkinter.CTkFrame):
@@ -729,6 +749,8 @@ class App(customtkinter.CTk):
         self.progress_bar.grid(row=3, column=0, columnspan=4, padx=10, pady=10, sticky="ew")
         self.progress_bar.set(0)
 
+        self.load_preferences()
+
     def ask_confirm(self, msg) -> bool:
         result = ConfirmDialog("No Governor found", msg, "200x110").get_input()
         self.focus()
@@ -868,6 +890,16 @@ class App(customtkinter.CTk):
 
     def state_callback(self, state):
         self.current_state.configure(text=state)
+
+    def load_preferences(self):
+        try:
+            with open("scan_preferences.json", "r") as f:
+                preferences = json.load(f)
+            self.scan_options_frame.first_screen_options_frame.set(preferences)
+            self.scan_options_frame.second_screen_options_frame.set(preferences)
+            self.scan_options_frame.third_screen_options_frame.set(preferences)
+        except FileNotFoundError:
+            pass
 
 app = App()
 app.report_callback_exception = ex_handler.handle_exception
