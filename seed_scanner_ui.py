@@ -461,10 +461,13 @@ class App(customtkinter.CTk):
             self.wait_window(dia)
 
         self.title("Seed Scanner by Cyrexxis")
-        self.geometry("560x420")
+        self.geometry("560x440")
         self.grid_columnconfigure(0, weight=4)
         self.grid_columnconfigure(1, weight=2)
         self.grid_rowconfigure(0, weight=1)
+        self.grid_rowconfigure(1, weight=1)
+        self.grid_rowconfigure(2, weight=1)
+        self.grid_rowconfigure(3, weight=1)
 
         self.options_frame = BasicOptionsFame(self, self.config)
         self.options_frame.grid(row=0, column=0, padx=10, pady=(10, 0), sticky="ewsn")
