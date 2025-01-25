@@ -26,6 +26,7 @@ import json
 import logging
 import os
 import sys
+import tkinter.messagebox as messagebox
 
 from dummy_root import get_app_root
 from roktracker.utils.validator import sanitize_scanname, validate_installation
@@ -510,6 +511,7 @@ class App(customtkinter.CTk):
                 "300x160",
             )
             self.state_callback("Not started")
+            messagebox.showerror("Error", "ADB Connection Error: " + str(error))
         except ConfigError as error:
             logger.error(
                 "Configuration error: " + str(error)
@@ -521,6 +523,7 @@ class App(customtkinter.CTk):
                 "300x160",
             )
             self.state_callback("Not started")
+            messagebox.showerror("Error", "Configuration Error: " + str(error))
         except Exception as error:
             logger.error(
                 "Unexpected error: " + str(error)
@@ -532,6 +535,9 @@ class App(customtkinter.CTk):
                 "300x160",
             )
             self.state_callback("Not started")
+            messagebox.showerror("Error", "Unexpected Error: " + str(error))
+        else:
+            messagebox.showinfo("Scan Complete", "The scan has been completed successfully.")
         finally:
             # Reset end scan button
             self.end_scan_button.configure(state="normal", text="End scan")
