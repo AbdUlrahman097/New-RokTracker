@@ -533,12 +533,33 @@ class App(customtkinter.CTk):
             )
         except AdbError as error:
             logger.error(
-                "An error with the adb connection occured (probably wrong port). Exact message: "
-                + str(error)
+                "ADB connection error: " + str(error)
             )
             InfoDialog(
-                "Error",
-                "An error with the adb connection occured. Please verfiy that you use the correct port.\nExact message: "
+                "ADB Connection Error",
+                "An error with the ADB connection occurred. Please verify that you are using the correct port and that your device is properly connected.\nExact message: "
+                + str(error),
+                "300x160",
+            )
+            self.state_callback("Not started")
+        except ConfigError as error:
+            logger.error(
+                "Configuration error: " + str(error)
+            )
+            InfoDialog(
+                "Configuration Error",
+                "There was an error with the configuration. Please check your configuration settings.\nExact message: "
+                + str(error),
+                "300x160",
+            )
+            self.state_callback("Not started")
+        except Exception as error:
+            logger.error(
+                "Unexpected error: " + str(error)
+            )
+            InfoDialog(
+                "Unexpected Error",
+                "An unexpected error occurred. Please try again.\nExact message: "
                 + str(error),
                 "300x160",
             )
