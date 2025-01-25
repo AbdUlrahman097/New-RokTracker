@@ -817,7 +817,7 @@ class App(customtkinter.CTk):
                 "power_threshold": options["power_threshold"],
                 "info_time": options["info_time"],
                 "gov_time": options["gov_time"],
-                "formats": options["formats"].to_dict(),
+                "formats": options["formats"].__dict__,  # Fix here
                 "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             })
 
