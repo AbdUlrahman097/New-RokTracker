@@ -136,7 +136,7 @@ class HorizontalCheckboxFrame(customtkinter.CTkTabview):
             label = customtkinter.CTkLabel(
                 self.tab(groupName), text=value["name"], height=1
             )
-            label.grid(row=cur_col, column=cur_col, padx=10, pady=2)
+            label.grid(row=cur_row, column=cur_col, padx=10, pady=2)  # Fix row assignment
 
             checkbox = customtkinter.CTkCheckBox(
                 self.tab(groupName),
@@ -156,7 +156,7 @@ class HorizontalCheckboxFrame(customtkinter.CTkTabview):
             self.checkboxes.append({value["name"]: checkbox})
 
             if (i + 1) % options_per_row == 0:
-                cur_row += 2
+                cur_row += 2  # Fix row increment
 
     def get(self):
         values = {}
