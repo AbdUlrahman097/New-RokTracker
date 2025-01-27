@@ -70,6 +70,10 @@ def main():
         logger.fatal(str(e))
         console.log(str(e))
         sys.exit(3)
+    except Exception as e:
+        logger.fatal(f"Unexpected error loading config: {str(e)}")
+        console.log(f"Unexpected error loading config: {str(e)}")
+        sys.exit(3)
 
     console.print(
         "Tesseract languages available: "
@@ -138,8 +142,13 @@ def main():
             return
         else:
             save_formats.from_list(save_formats_tmp)
-    except:
-        console.log("User abort. Exiting scanner.")
+    except ValueError as e:
+        logger.error(f"Value error: {str(e)}")
+        console.print(f"Value error: {str(e)}")
+        sys.exit(3)
+    except Exception as e:
+        logger.error(f"Unexpected error: {str(e)}")
+        console.print(f"Unexpected error: {str(e)}")
         sys.exit(3)
 
     try:
@@ -162,7 +171,9 @@ def main():
             "An error with the adb connection occured. Please verfiy that you use the correct port.\nExact message: "
             + str(error)
         )
-
+    except Exception as e:
+        logger.error(f"Unexpected error: {str(e)}")
+        console.print(f"Unexpected error: {str(e)}")
 
 if __name__ == "__main__":
     main()
