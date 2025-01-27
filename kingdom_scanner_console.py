@@ -32,6 +32,7 @@ from roktracker.utils.validator import sanitize_scanname, validate_installation
 logger = logging.getLogger(__name__)
 ex_handler = ConsoleExceptionHander(logger)
 
+logger.info("Application started")
 
 sys.excepthook = ex_handler.handle_exception
 threading.excepthook = ex_handler.handle_thread_exception
@@ -52,12 +53,16 @@ def ask_continue(msg: str) -> bool:
 
 
 def main():
+    logger.info("Starting main function")
     if not validate_installation().success:
+        logger.error("Installation validation failed")
         sys.exit(2)
     root_dir = get_app_root()
+    logger.info(f"Application root directory: {root_dir}")
 
     try:
         config = load_config()
+        logger.info("Configuration loaded successfully")
     except ConfigError as e:
         logger.fatal(str(e))
         console.log(str(e))
@@ -91,10 +96,12 @@ def main():
     )
 
     try:
+        logger.info("Prompting user for Bluestacks instance name")
         bluestacks_device_name = questionary.text(
             message="Name of your bluestacks instance:",
             default=config["general"]["bluestacks"]["name"],
         ).unsafe_ask()
+        logger.info(f"Bluestacks instance name: {bluestacks_device_name}")
 
         bluestacks_port = int(
             questionary.text(
@@ -103,6 +110,7 @@ def main():
                 validate=lambda port: is_string_int(port),
             ).unsafe_ask()
         )
+        logger.info(f"Bluestacks port: {bluestacks_port}")
 
         kingdom = questionary.text(
             message="Kingdom name (used for file name):",
@@ -144,6 +152,7 @@ def main():
             default=config["scan"]["track_inactives"],
         ).unsafe_ask()
 
+        logger.info("Prompting user for scan mode")
         scan_mode = questionary.select(
             "What scan do you want to do?",
             choices=[
@@ -167,6 +176,7 @@ def main():
                 ),
             ],
         ).unsafe_ask()
+        logger.info(f"Selected scan mode: {scan_mode}")
 
         match scan_mode:
             case "full":
@@ -273,14 +283,17 @@ def main():
                 ).unsafe_ask()
                 if items_to_scan == [] or items_to_scan == None:
                     console.print("Exiting, no items selected.")
+                    logger.info("No items selected for custom scan, exiting")
                     return
                 else:
                     for item in items_to_scan:
                         scan_options[item] = True
             case _:
                 console.print("Exiting, no mode selected.")
+                logger.info("No scan mode selected, exiting")
                 return
 
+        logger.info("Prompting user for validation options")
         validate_kills = False
         reconstruct_fails = False
 
@@ -359,6 +372,7 @@ def main():
 
         if save_formats_tmp == [] or save_formats_tmp == None:
             console.print("Exiting, no formats selected.")
+            logger.info("No formats selected, exiting")
             return
         else:
             save_formats.from_list(save_formats_tmp)
@@ -380,6 +394,7 @@ def main():
             f"The UUID of this scan is [green]{kingdom_scanner.run_id}[/green]",
             highlight=False,
         )
+        logger.info(f"Scan UUID: {kingdom_scanner.run_id}")
 
         signal.signal(signal.SIGINT, lambda _, __: ask_abort(kingdom_scanner))
 
@@ -394,6 +409,7 @@ def main():
             power_threshold,
             save_formats,
         )
+        logger.info("Scan started")
     except AdbError as error:
         logger.error(
             "An error with the adb connection occured (probably wrong port). Exact message: "
@@ -409,4 +425,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+    logger.info("Application finished")
     input("Press enter to exit...")
