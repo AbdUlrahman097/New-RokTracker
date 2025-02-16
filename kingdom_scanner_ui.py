@@ -31,6 +31,8 @@ import tkinter.messagebox as messagebox
 import datetime
 import csv
 import tkinter.simpledialog as simpledialog
+import tkcalendar
+from datetime import date
 
 from dummy_root import get_app_root
 from roktracker.kingdom.additional_data import AdditionalData
@@ -371,6 +373,13 @@ class BasicOptionsFame(customtkinter.CTkFrame):
         self.gov_close_text.grid(row=13, column=1, padx=10, pady=(5, 0), sticky="ew")
         self.gov_close_text.insert(0, str(config["scan"]["timings"]["gov_close"]))
 
+        # Move schedule frame up
+        self.schedule_frame = ScheduleFrame(self)
+        self.schedule_frame.grid(
+            row=14, column=0, padx=10, pady=(5, 0), sticky="ew", columnspan=2
+        )
+
+        # Move output options down
         output_values = [
             {
                 "name": "xlsx",
@@ -392,7 +401,7 @@ class BasicOptionsFame(customtkinter.CTkFrame):
             self, output_values, "Output Format", 3
         )
         self.output_options.grid(
-            row=14, column=0, padx=10, pady=(5, 0), sticky="ew", columnspan=2
+            row=15, column=0, padx=10, pady=(5, 0), sticky="ew", columnspan=2
         )
 
     def set_uuid(self, uuid):
@@ -618,6 +627,144 @@ class LastGovernorInfo(customtkinter.CTkFrame):
                 self.additional_stats.set_var(key, value)
 
 
+class TimePickerDialog(customtkinter.CTkToplevel):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.title("Schedule Scan")
+        
+        # Make modal
+        self.transient(parent)
+        self.grab_set()
+        
+        # Center the dialog
+        self.geometry("300x400")
+        
+        # Configure grid
+        self.grid_columnconfigure(0, weight=1)
+        
+        # Add calendar
+        self.calendar = tkcalendar.Calendar(
+            self,
+            selectmode='day',
+            date_pattern='y-mm-dd',
+            mindate=date.today()
+        )
+        self.calendar.grid(row=0, column=0, padx=10, pady=10, sticky="ew")
+        
+        # Time frame
+        self.time_frame = customtkinter.CTkFrame(self)
+        self.time_frame.grid(row=1, column=0, padx=10, pady=10, sticky="ew")
+        self.time_frame.grid_columnconfigure((0,1), weight=1)
+        
+        # Hour selector
+        self.hour_label = customtkinter.CTkLabel(self.time_frame, text="Hour:")
+        self.hour_label.grid(row=0, column=0, padx=5, pady=5)
+        self.hour_var = customtkinter.StringVar(value="00")
+        self.hour_menu = customtkinter.CTkOptionMenu(
+            self.time_frame,
+            values=[f"{i:02d}" for i in range(24)],
+            variable=self.hour_var
+        )
+        self.hour_menu.grid(row=1, column=0, padx=5, pady=5)
+        
+        # Minute selector
+        self.minute_label = customtkinter.CTkLabel(self.time_frame, text="Minute:")
+        self.minute_label.grid(row=0, column=1, padx=5, pady=5)
+        self.minute_var = customtkinter.StringVar(value="00")
+        self.minute_menu = customtkinter.CTkOptionMenu(
+            self.time_frame,
+            values=[f"{i:02d}" for i in range(60)],
+            variable=self.minute_var
+        )
+        self.minute_menu.grid(row=1, column=1, padx=5, pady=5)
+        
+        # Buttons
+        self.button_frame = customtkinter.CTkFrame(self)
+        self.button_frame.grid(row=2, column=0, padx=10, pady=10, sticky="ew")
+        self.button_frame.grid_columnconfigure((0,1), weight=1)
+        
+        self.ok_button = customtkinter.CTkButton(
+            self.button_frame,
+            text="OK",
+            command=self.ok_pressed
+        )
+        self.ok_button.grid(row=0, column=0, padx=5, pady=5)
+        
+        self.cancel_button = customtkinter.CTkButton(
+            self.button_frame,
+            text="Cancel",
+            command=self.cancel_pressed
+        )
+        self.cancel_button.grid(row=0, column=1, padx=5, pady=5)
+        
+        self.result = None
+        
+    def ok_pressed(self):
+        selected_date = self.calendar.selection_get()
+        hour = int(self.hour_var.get())
+        minute = int(self.minute_var.get())
+        self.result = datetime.datetime.combine(
+            selected_date if selected_date else date.today(),
+            datetime.time(hour=hour, minute=minute)
+        )
+        self.destroy()
+        
+    def cancel_pressed(self):
+        self.destroy()
+
+class ScheduleFrame(customtkinter.CTkFrame):
+    def __init__(self, master):
+        super().__init__(master)
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_columnconfigure(1, weight=1)
+
+        self.schedule_label = customtkinter.CTkLabel(self, text="Schedule scan:", height=1)
+        self.schedule_label.grid(row=0, column=0, padx=10, pady=(5, 0), sticky="w")
+        self.schedule_switch = customtkinter.CTkSwitch(self, text="", onvalue=True, offvalue=False)
+        self.schedule_switch.grid(row=0, column=1, padx=10, pady=(5, 0), sticky="w")
+
+        self.time_label = customtkinter.CTkLabel(self, text="Start time:", height=1)
+        self.time_label.grid(row=1, column=0, padx=10, pady=(5, 0), sticky="w")
+        self.time_button = customtkinter.CTkButton(
+            self, 
+            text="Set time",
+            command=self.set_time,
+            state="disabled"
+        )
+        self.time_button.grid(row=1, column=1, padx=10, pady=(5, 0), sticky="ew")
+        
+        self.scheduled_time = None
+        self.schedule_switch.configure(command=self.toggle_schedule)
+
+    def set_time(self):
+        dialog = TimePickerDialog(self)
+        self.wait_window(dialog)
+        
+        if dialog.result:
+            scheduled_time = dialog.result
+            if scheduled_time < datetime.datetime.now():
+                messagebox.showerror("Error", "Selected time is in the past")
+                return
+                
+            self.scheduled_time = scheduled_time
+            self.time_button.configure(
+                text=scheduled_time.strftime("%Y-%m-%d %H:%M")
+            )
+
+    def toggle_schedule(self):
+        if self.schedule_switch.get():
+            self.time_button.configure(state="normal")
+        else:
+            self.time_button.configure(state="disabled")
+            self.scheduled_time = None
+            self.time_button.configure(text="Set time")
+
+    def get_scheduled_time(self):
+        if self.schedule_switch.get() and self.scheduled_time:
+            return self.scheduled_time
+        return None
+
+
 class App(customtkinter.CTk):
     def __init__(self):
         super().__init__()
@@ -646,7 +793,7 @@ class App(customtkinter.CTk):
             self.wait_window(dia)
 
         self.title("Kingdom Scanner by Cyrexxis")
-        self.geometry("800x640")
+        self.geometry("800x690")
         self.grid_columnconfigure(0, weight=1)
         self.grid_columnconfigure(1, weight=2)
         self.grid_columnconfigure(2, weight=2)
@@ -760,9 +907,14 @@ class App(customtkinter.CTk):
         self.quit()
 
     def start_scan(self):
-        Thread(
-            target=self.launch_scanner,
-        ).start()
+        scheduled_time = self.options_frame.schedule_frame.get_scheduled_time()
+        if scheduled_time:
+            wait_seconds = (scheduled_time - datetime.datetime.now()).total_seconds()
+            if wait_seconds > 0:
+                self.state_callback(f"Waiting to start at {scheduled_time.strftime('%H:%M')}")
+                self.after(int(wait_seconds * 1000), self.launch_scanner)
+                return
+        Thread(target=self.launch_scanner).start()
 
     def launch_scanner(self):
         if not self.options_frame.options_valid():
