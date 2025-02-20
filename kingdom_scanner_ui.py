@@ -654,29 +654,53 @@ class TimePickerDialog(customtkinter.CTkToplevel):
         # Time frame
         self.time_frame = customtkinter.CTkFrame(self)
         self.time_frame.grid(row=1, column=0, padx=10, pady=10, sticky="ew")
-        self.time_frame.grid_columnconfigure((0,1), weight=1)
+        self.time_frame.grid_columnconfigure((0,1,2,3), weight=1)
         
-        # Hour selector
+        # Hour input and validation
         self.hour_label = customtkinter.CTkLabel(self.time_frame, text="Hour:")
         self.hour_label.grid(row=0, column=0, padx=5, pady=5)
+        
         self.hour_var = customtkinter.StringVar(value="00")
+        self.hour_entry = customtkinter.CTkEntry(
+            self.time_frame,
+            width=50,
+            textvariable=self.hour_var,
+            validate="key",
+            validatecommand=(self.register(self.validate_hour), "%P")
+        )
+        self.hour_entry.grid(row=0, column=1, padx=5, pady=5)
+        
+        # Hour dropdown
         self.hour_menu = customtkinter.CTkOptionMenu(
             self.time_frame,
             values=[f"{i:02d}" for i in range(24)],
-            variable=self.hour_var
+            command=self.hour_selected,
+            width=60
         )
-        self.hour_menu.grid(row=1, column=0, padx=5, pady=5)
+        self.hour_menu.grid(row=0, column=2, padx=5, pady=5)
         
-        # Minute selector
+        # Minute input and validation
         self.minute_label = customtkinter.CTkLabel(self.time_frame, text="Minute:")
-        self.minute_label.grid(row=0, column=1, padx=5, pady=5)
+        self.minute_label.grid(row=1, column=0, padx=5, pady=5)
+        
         self.minute_var = customtkinter.StringVar(value="00")
+        self.minute_entry = customtkinter.CTkEntry(
+            self.time_frame,
+            width=50,
+            textvariable=self.minute_var,
+            validate="key",
+            validatecommand=(self.register(self.validate_minute), "%P")
+        )
+        self.minute_entry.grid(row=1, column=1, padx=5, pady=5)
+        
+        # Minute dropdown
         self.minute_menu = customtkinter.CTkOptionMenu(
             self.time_frame,
             values=[f"{i:02d}" for i in range(60)],
-            variable=self.minute_var
+            command=self.minute_selected,
+            width=60
         )
-        self.minute_menu.grid(row=1, column=1, padx=5, pady=5)
+        self.minute_menu.grid(row=1, column=2, padx=5, pady=5)
         
         # Buttons
         self.button_frame = customtkinter.CTkFrame(self)
@@ -698,16 +722,59 @@ class TimePickerDialog(customtkinter.CTkToplevel):
         self.cancel_button.grid(row=0, column=1, padx=5, pady=5)
         
         self.result = None
+
+    def validate_hour(self, value):
+        """Validate hour input"""
+        if value == "":
+            return True
+        try:
+            hour = int(value)
+            if 0 <= hour <= 23:
+                if len(value) == 2:
+                    self.hour_var.set(f"{hour:02d}")
+                return True
+            return False
+        except ValueError:
+            return False
+
+    def validate_minute(self, value):
+        """Validate minute input"""
+        if value == "":
+            return True
+        try:
+            minute = int(value)
+            if 0 <= minute <= 59:
+                if len(value) == 2:
+                    self.minute_var.set(f"{minute:02d}")
+                return True
+            return False
+        except ValueError:
+            return False
+
+    def hour_selected(self, value):
+        """Update hour entry when dropdown is used"""
+        self.hour_var.set(value)
+
+    def minute_selected(self, value):
+        """Update minute entry when dropdown is used"""
+        self.minute_var.set(value)
         
     def ok_pressed(self):
         selected_date = self.calendar.selection_get()
-        hour = int(self.hour_var.get())
-        minute = int(self.minute_var.get())
-        self.result = datetime.datetime.combine(
-            selected_date if selected_date else date.today(),
-            datetime.time(hour=hour, minute=minute)
-        )
-        self.destroy()
+        try:
+            hour = int(self.hour_var.get())
+            minute = int(self.minute_var.get())
+            if not (0 <= hour <= 23 and 0 <= minute <= 59):
+                messagebox.showerror("Error", "Invalid time format")
+                return
+            
+            self.result = datetime.datetime.combine(
+                selected_date if selected_date else date.today(),
+                datetime.time(hour=hour, minute=minute)
+            )
+            self.destroy()
+        except ValueError:
+            messagebox.showerror("Error", "Please enter valid time values")
         
     def cancel_pressed(self):
         self.destroy()
