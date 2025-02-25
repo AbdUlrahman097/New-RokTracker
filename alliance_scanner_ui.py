@@ -477,8 +477,8 @@ class App(QMainWindow):
             self.close()
             return
 
-        self.setWindowTitle("Alliance Scanner by Cyrexxis")
-        self.setGeometry(100, 100, 900, 600)  # Increased window size
+        self.setWindowTitle("Alliance Scanner")
+        self.setGeometry(100, 100, 800, 500)  # Increased window size
 
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
