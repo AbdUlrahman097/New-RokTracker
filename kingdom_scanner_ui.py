@@ -21,20 +21,23 @@ logging.basicConfig(
 
 check_py_version((3, 11))
 
-import customtkinter
+from PyQt6.QtWidgets import (
+    QApplication, QMainWindow, QWidget, QLabel, QLineEdit, 
+    QPushButton, QVBoxLayout, QHBoxLayout, QCheckBox,
+    QFrame, QMessageBox, QProgressBar, QTabWidget,
+    QCalendarWidget, QTimeEdit, QDialog, QGridLayout,
+    QComboBox, QGroupBox, QSpacerItem, QSizePolicy
+)
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QDateTime, QTime, QTimer, QSize
 import json
-import logging
 import os
 import sys
 import threading
-import tkinter.messagebox as messagebox
 import datetime
 import csv
-import tkinter.simpledialog as simpledialog
-import tkcalendar
 from datetime import date
+from io import TextIOWrapper
 
-from dummy_root import get_app_root
 from roktracker.kingdom.additional_data import AdditionalData
 from roktracker.kingdom.governor_data import GovernorData
 from roktracker.kingdom.scanner import KingdomScanner
@@ -42,7 +45,7 @@ from roktracker.utils.adb import get_bluestacks_port
 from roktracker.utils.exception_handling import GuiExceptionHandler
 from roktracker.utils.validator import validate_installation, sanitize_scanname
 from threading import Thread
-from typing import Dict, List
+from typing import Dict, List, Any
 
 logger = logging.getLogger(__name__)
 ex_handler = GuiExceptionHandler(logger)
@@ -50,336 +53,293 @@ ex_handler = GuiExceptionHandler(logger)
 sys.excepthook = ex_handler.handle_exception
 threading.excepthook = ex_handler.handle_thread_exception
 
-customtkinter.set_appearance_mode(
-    "system"
-)  # Modes: "System" (standard), "Dark", "Light"
-customtkinter.set_default_color_theme(
-    "blue"
-)  # Themes: "blue" (standard), "green", "dark-blue"
-
-
-def to_int_or(element, alternative):
-    if element == "Skipped":
-        return element
-
+def to_int_or(value, default):
+    """Convert a value to int or return default if not possible"""
     try:
-        return int(element)
-    except ValueError:
-        return alternative
+        return int(value)
+    except (ValueError, TypeError):
+        return default
 
-
-class CheckboxFrame(customtkinter.CTkTabview):
-    def __init__(self, master, values, groupName):
-        super().__init__(
-            master,
-            state="disabled",
-            width=0,
-            height=0,
-            segmented_button_fg_color=customtkinter.ThemeManager.theme["CTkFrame"][
-                "fg_color"
-            ],
-            segmented_button_selected_color=customtkinter.ThemeManager.theme[
-                "CTkFrame"
-            ]["fg_color"],
-            text_color_disabled=customtkinter.ThemeManager.theme["CTkLabel"][
-                "text_color"
-            ],
-        )
-        self.add(groupName)
-        self.values = list(filter(lambda x: x["group"] == groupName, values))  # type: ignore
-        self.checkboxes: List[customtkinter.CTkCheckBox] = []
-
-        for i, value in enumerate(self.values):
-            checkbox = customtkinter.CTkCheckBox(
-                self.tab(groupName),
-                text=value["name"],
-                onvalue=True,
-                offvalue=False,
-                checkbox_height=16,
-                checkbox_width=16,
-                height=16,
-            )
-            checkbox.grid(row=i, column=0, padx=10, pady=2, sticky="w")
-
+class CheckboxFrame(QFrame):
+    def __init__(self, values: List[Dict[str, Any]], groupName: str):
+        super().__init__()
+        self.values = list(filter(lambda x: x["group"] == groupName, values))
+        self.checkboxes = []
+        
+        layout = QVBoxLayout()
+        self.setLayout(layout)
+        
+        for value in self.values:
+            checkbox = QCheckBox(value["name"])
             if value["default"]:
-                checkbox.select()
-
+                checkbox.setChecked(True)
+            layout.addWidget(checkbox)
             self.checkboxes.append(checkbox)
 
     def get(self):
         values = {}
         for checkbox in self.checkboxes:
-            values.update({checkbox.cget("text"): checkbox.get()})
+            values.update({checkbox.text(): checkbox.isChecked()})
         return values
 
     def set(self, preferences):
         for checkbox in self.checkboxes:
-            checkbox_name = checkbox.cget("text")
+            checkbox_name = checkbox.text()
             if checkbox_name in preferences:
-                if preferences[checkbox_name]:
-                    checkbox.select()
-                else:
-                    checkbox.deselect()
+                checkbox.setChecked(preferences[checkbox_name])
 
-
-class HorizontalCheckboxFrame(customtkinter.CTkTabview):
-    def __init__(self, master, values, groupName, options_per_row):
-        super().__init__(
-            master,
-            state="disabled",
-            width=0,
-            height=0,
-            segmented_button_fg_color=customtkinter.ThemeManager.theme["CTkFrame"][
-                "fg_color"
-            ],
-            segmented_button_selected_color=customtkinter.ThemeManager.theme[
-                "CTkFrame"
-            ]["fg_color"],
-            text_color_disabled=customtkinter.ThemeManager.theme["CTkLabel"][
-                "text_color"
-            ],
-        )
-        self.add(groupName)
-        self.values = list(filter(lambda x: x["group"] == groupName, values))  # type: ignore
-        self.checkboxes: List[Dict[str, customtkinter.CTkCheckBox]] = []
-
-        for i in range(0, options_per_row):
-            self.tab(groupName).columnconfigure(i, weight=1)
-
-        cur_row = 0
+class HorizontalCheckboxFrame(QFrame):
+    def __init__(self, values: List[Dict[str, Any]], groupName: str, options_per_row: int):
+        super().__init__()
+        self.values = list(filter(lambda x: x["group"] == groupName, values))
+        self.checkboxes = []
+        
+        layout = QGridLayout()
+        self.setLayout(layout)
+        
         for i, value in enumerate(self.values):
-            cur_col = i % options_per_row
-            label = customtkinter.CTkLabel(
-                self.tab(groupName), text=value["name"], height=1
-            )
-            label.grid(row=cur_row, column=cur_col, padx=10, pady=2)
-
-            checkbox = customtkinter.CTkCheckBox(
-                self.tab(groupName),
-                text="",
-                onvalue=True,
-                offvalue=False,
-                checkbox_height=20,
-                checkbox_width=20,
-                height=20,
-                width=20,
-            )
-            checkbox.grid(row=cur_row + 1, column=cur_col, padx=10, pady=2)
-
+            row = i // options_per_row * 2
+            col = i % options_per_row
+            
+            label = QLabel(value["name"])
+            layout.addWidget(label, row, col)
+            
+            checkbox = QCheckBox()
             if value["default"]:
-                checkbox.select()
-
+                checkbox.setChecked(True)
+            layout.addWidget(checkbox, row + 1, col)
+            
             self.checkboxes.append({value["name"]: checkbox})
-
-            if (i + 1) % options_per_row == 0:
-                cur_row += 2
 
     def get(self):
         values = {}
         for checkbox in self.checkboxes:
             for k, v in checkbox.items():
-                values.update({k: bool(v.get())})
+                values.update({k: v.isChecked()})
         return values
 
+class TimePickerDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Schedule Scan")
+        self.setModal(True)
+        
+        layout = QVBoxLayout()
+        self.setLayout(layout)
+        
+        # Calendar
+        self.calendar = QCalendarWidget()
+        self.calendar.setMinimumDate(date.today())
+        layout.addWidget(self.calendar)
+        
+        # Time selection
+        time_frame = QFrame()
+        time_layout = QHBoxLayout()
+        time_frame.setLayout(time_layout)
+        
+        self.time_edit = QTimeEdit()
+        self.time_edit.setDisplayFormat("HH:mm")
+        time_layout.addWidget(QLabel("Time:"))
+        time_layout.addWidget(self.time_edit)
+        
+        layout.addWidget(time_frame)
+        
+        # Buttons
+        button_frame = QFrame()
+        button_layout = QHBoxLayout()
+        button_frame.setLayout(button_layout)
+        
+        self.ok_button = QPushButton("OK")
+        self.ok_button.clicked.connect(self.accept)
+        self.cancel_button = QPushButton("Cancel")
+        self.cancel_button.clicked.connect(self.reject)
+        
+        button_layout.addWidget(self.ok_button)
+        button_layout.addWidget(self.cancel_button)
+        
+        layout.addWidget(button_frame)
 
-class BasicOptionsFame(customtkinter.CTkFrame):
-    def __init__(self, master, config):
-        super().__init__(master)
+    def get_datetime(self):
+        selected_date = self.calendar.selectedDate().toPyDate()
+        selected_time = self.time_edit.time().toPyTime()
+        return datetime.datetime.combine(selected_date, selected_time)
+
+class ScheduleFrame(QFrame):
+    def __init__(self):
+        super().__init__()
+        layout = QGridLayout()
+        self.setLayout(layout)
+        
+        self.schedule_switch = QCheckBox()
+        self.time_button = QPushButton("Set time")
+        self.time_button.setEnabled(False)
+        self.time_button.clicked.connect(self.set_time)
+        
+        layout.addWidget(QLabel("Schedule scan:"), 0, 0)
+        layout.addWidget(self.schedule_switch, 0, 1)
+        layout.addWidget(QLabel("Start time:"), 1, 0)
+        layout.addWidget(self.time_button, 1, 1)
+        
+        self.scheduled_time = None
+        self.schedule_switch.stateChanged.connect(self.toggle_schedule)
+
+    def set_time(self):
+        dialog = TimePickerDialog(self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            scheduled_time = dialog.get_datetime()
+            if scheduled_time and scheduled_time < datetime.datetime.now():
+                QMessageBox.critical(self, "Error", "Selected time is in the past")
+                return
+                
+            self.scheduled_time = scheduled_time
+            if scheduled_time:
+                self.time_button.setText(
+                    scheduled_time.strftime("%Y-%m-%d %H:%M")
+                )
+
+    def toggle_schedule(self):
+        self.time_button.setEnabled(self.schedule_switch.isChecked())
+        if not self.schedule_switch.isChecked():
+            self.scheduled_time = None
+            self.time_button.setText("Set time")
+
+    def get_scheduled_time(self):
+        if self.schedule_switch.isChecked() and self.scheduled_time:
+            return self.scheduled_time
+        return None
+
+class BasicOptionsFrame(QFrame):
+    def __init__(self, config):
+        super().__init__()
         self.config = config
+        self.setMinimumWidth(400)
 
-        self.int_validation = self.register(is_string_int)
-        self.float_validation = self.register(is_string_float)
+        main_layout = QVBoxLayout()
+        self.setLayout(main_layout)
 
-        self.grid_columnconfigure(0, weight=1)
-        self.grid_columnconfigure(1, weight=2)
-        self.scan_uuid_label = customtkinter.CTkLabel(self, text="Scan UUID:", height=1)
-        self.scan_uuid_label.grid(row=0, column=0, padx=10, pady=(5, 0), sticky="w")
-        self.scan_uuid_var = customtkinter.StringVar(self, "---")
-        self.scan_uuid_label_2 = customtkinter.CTkLabel(
-            self, textvariable=self.scan_uuid_var, height=1, anchor="w"
-        )
-        self.scan_uuid_label_2.grid(row=0, column=1, padx=10, pady=(5, 0), sticky="ew")
+        # Scan Info Group
+        scan_group = QGroupBox("Scan Information")
+        scan_layout = QGridLayout()
+        scan_group.setLayout(scan_layout)
 
-        self.scan_name_label = customtkinter.CTkLabel(self, text="Scan name:", height=1)
-        self.scan_name_label.grid(row=1, column=0, padx=10, pady=(5, 0), sticky="w")
-        self.scan_name_text = customtkinter.CTkEntry(self)
-        self.scan_name_text.grid(row=1, column=1, padx=10, pady=(5, 0), sticky="ew")
-        self.scan_name_text.insert(0, config["scan"]["kingdom_name"])
+        self.scan_uuid_label = QLabel("Scan UUID:")
+        scan_layout.addWidget(self.scan_uuid_label, 0, 0)
+        self.scan_uuid_var = QLabel("---")
+        scan_layout.addWidget(self.scan_uuid_var, 0, 1)
 
-        self.bluestacks_instance_label = customtkinter.CTkLabel(
-            self, text="Bluestacks name:", height=1
-        )
-        self.bluestacks_instance_label.grid(
-            row=2, column=0, padx=10, pady=(5, 0), sticky="w"
-        )
-        self.bluestacks_instance_text = customtkinter.CTkEntry(self)
-        self.bluestacks_instance_text.grid(
-            row=2, column=1, padx=10, pady=(5, 0), sticky="ew"
-        )
-        self.bluestacks_instance_text.insert(0, config["general"]["bluestacks"]["name"])
+        self.scan_name_label = QLabel("Scan name:")
+        scan_layout.addWidget(self.scan_name_label, 1, 0)
+        self.scan_name_text = QLineEdit()
+        self.scan_name_text.setText(config["scan"]["kingdom_name"])
+        scan_layout.addWidget(self.scan_name_text, 1, 1)
 
-        self.adb_port_label = customtkinter.CTkLabel(self, text="Adb port:", height=1)
-        self.adb_port_label.grid(row=3, column=0, padx=10, pady=(5, 0), sticky="w")
-        self.adb_port_text = customtkinter.CTkEntry(
-            self,
-            validate="all",
-            validatecommand=(self.int_validation, "%P", True),
-        )
-        self.adb_port_text.grid(row=3, column=1, padx=10, pady=(5, 0), sticky="ew")
-        self.bluestacks_instance_text.configure(
-            validatecommand=(self.register(self.update_port), "%P"), validate="key"
-        )
+        self.scan_amount_label = QLabel("People to scan:")
+        scan_layout.addWidget(self.scan_amount_label, 2, 0)
+        self.scan_amount_text = QLineEdit()
+        self.scan_amount_text.setText(str(config["scan"]["people_to_scan"]))
+        scan_layout.addWidget(self.scan_amount_text, 2, 1)
+
+        main_layout.addWidget(scan_group)
+
+        # BlueStacks Settings Group
+        bluestacks_group = QGroupBox("BlueStacks Settings")
+        bluestacks_layout = QGridLayout()
+        bluestacks_group.setLayout(bluestacks_layout)
+
+        self.bluestacks_instance_label = QLabel("Instance name:")
+        bluestacks_layout.addWidget(self.bluestacks_instance_label, 0, 0)
+        self.bluestacks_instance_text = QLineEdit()
+        self.bluestacks_instance_text.setText(config["general"]["bluestacks"]["name"])
+        self.bluestacks_instance_text.textChanged.connect(lambda: self.update_port())
+        bluestacks_layout.addWidget(self.bluestacks_instance_text, 0, 1)
+
+        self.adb_port_label = QLabel("ADB port:")
+        bluestacks_layout.addWidget(self.adb_port_label, 1, 0)
+        self.adb_port_text = QLineEdit()
+        bluestacks_layout.addWidget(self.adb_port_text, 1, 1)
         self.update_port()
 
-        self.scan_amount_label = customtkinter.CTkLabel(
-            self, text="People to scan:", height=1
-        )
-        self.scan_amount_label.grid(row=4, column=0, padx=10, pady=(5, 0), sticky="w")
-        self.scan_amount_text = customtkinter.CTkEntry(
-            self,
-            validate="all",
-            validatecommand=(self.int_validation, "%P", True),
-        )
-        self.scan_amount_text.grid(row=4, column=1, padx=10, pady=(5, 0), sticky="ew")
-        self.scan_amount_text.insert(0, str(config["scan"]["people_to_scan"]))
+        main_layout.addWidget(bluestacks_group)
 
-        self.resume_scan_label = customtkinter.CTkLabel(
-            self, text="Resume scan:", height=1
-        )
-        self.resume_scan_label.grid(row=5, column=0, padx=10, pady=(5, 0), sticky="w")
-        self.resume_scan_checkbox = customtkinter.CTkCheckBox(
-            self, text="", onvalue=True, offvalue=False
-        )
-        self.resume_scan_checkbox.grid(
-            row=5, column=1, padx=10, pady=(5, 0), sticky="w"
-        )
+        # Scan Options Group
+        options_group = QGroupBox("Scan Options")
+        options_layout = QGridLayout()
+        options_group.setLayout(options_layout)
 
+        row = 0
+        self.resume_scan_checkbox = QCheckBox("Resume scan")
         if config["scan"]["resume"]:
-            self.resume_scan_checkbox.select()
+            self.resume_scan_checkbox.setChecked(True)
+        options_layout.addWidget(self.resume_scan_checkbox, row, 0)
 
-        self.new_scroll_label = customtkinter.CTkLabel(
-            self, text="Advanced scroll:", height=1
-        )
-        self.new_scroll_label.grid(row=6, column=0, padx=10, pady=(5, 0), sticky="w")
-        self.new_scroll_switch = customtkinter.CTkSwitch(
-            self, text="", onvalue=True, offvalue=False
-        )
-        self.new_scroll_switch.grid(row=6, column=1, padx=10, pady=(5, 0), sticky="w")
-
+        self.new_scroll_switch = QCheckBox("Advanced scroll")
         if config["scan"]["advanced_scroll"]:
-            self.new_scroll_switch.select()
+            self.new_scroll_switch.setChecked(True)
+        options_layout.addWidget(self.new_scroll_switch, row, 1)
 
-        self.track_inactives_label = customtkinter.CTkLabel(
-            self, text="Track inactives:", height=1
-        )
-        self.track_inactives_label.grid(
-            row=7, column=0, padx=10, pady=(5, 0), sticky="w"
-        )
-        self.track_inactives_switch = customtkinter.CTkSwitch(
-            self, text="", onvalue=True, offvalue=False
-        )
-        self.track_inactives_switch.grid(
-            row=7, column=1, padx=10, pady=(5, 0), sticky="w"
-        )
-
+        row += 1
+        self.track_inactives_switch = QCheckBox("Track inactives")
         if config["scan"]["track_inactives"]:
-            self.track_inactives_switch.select()
+            self.track_inactives_switch.setChecked(True)
+        options_layout.addWidget(self.track_inactives_switch, row, 0)
 
-        self.validate_kills_label = customtkinter.CTkLabel(
-            self, text="Validate kills:", height=1
-        )
-        self.validate_kills_label.grid(
-            row=8, column=0, padx=10, pady=(5, 0), sticky="w"
-        )
-        self.validate_kills_switch = customtkinter.CTkSwitch(
-            self, text="", onvalue=True, offvalue=False
-        )
-        self.validate_kills_switch.grid(
-            row=8, column=1, padx=10, pady=(5, 0), sticky="w"
-        )
-
+        self.validate_kills_switch = QCheckBox("Validate kills")
         if config["scan"]["validate_kills"]:
-            self.validate_kills_switch.select()
+            self.validate_kills_switch.setChecked(True)
+        options_layout.addWidget(self.validate_kills_switch, row, 1)
 
-        self.reconstruct_fails_label = customtkinter.CTkLabel(
-            self, text="Reconstruct kills:", height=1
-        )
-        self.reconstruct_fails_label.grid(
-            row=9, column=0, padx=10, pady=(5, 0), sticky="w"
-        )
-        self.reconstruct_fails_switch = customtkinter.CTkSwitch(
-            self, text="", onvalue=True, offvalue=False
-        )
-        self.reconstruct_fails_switch.grid(
-            row=9, column=1, padx=10, pady=(5, 0), sticky="w"
-        )
-
+        row += 1
+        self.reconstruct_fails_switch = QCheckBox("Reconstruct kills")
         if config["scan"]["reconstruct_kills"]:
-            self.reconstruct_fails_switch.select()
+            self.reconstruct_fails_switch.setChecked(True)
+        options_layout.addWidget(self.reconstruct_fails_switch, row, 0)
 
-        self.validate_power_label = customtkinter.CTkLabel(
-            self, text="Validate power:", height=1
-        )
-        self.validate_power_label.grid(
-            row=10, column=0, padx=10, pady=(5, 0), sticky="w"
-        )
-        self.validate_power_switch = customtkinter.CTkSwitch(
-            self, text="", onvalue=True, offvalue=False
-        )
-        self.validate_power_switch.grid(
-            row=10, column=1, padx=10, pady=(5, 0), sticky="w"
-        )
-
+        self.validate_power_switch = QCheckBox("Validate power")
         if config["scan"]["validate_power"]:
-            self.validate_power_switch.select()
+            self.validate_power_switch.setChecked(True)
+        options_layout.addWidget(self.validate_power_switch, row, 1)
 
-        self.power_threshold_label = customtkinter.CTkLabel(
-            self, text="Power tolerance:", height=1
-        )
-        self.power_threshold_label.grid(
-            row=11, column=0, padx=10, pady=(5, 0), sticky="w"
-        )
-        self.power_threshold_text = customtkinter.CTkEntry(
-            self,
-            validate="all",
-            validatecommand=(self.float_validation, "%P", True),
-        )
-        self.power_threshold_text.grid(
-            row=11, column=1, padx=10, pady=(5, 0), sticky="ew"
-        )
-        self.power_threshold_text.insert(0, str(config["scan"]["power_threshold"]))
+        row += 1
+        self.power_threshold_label = QLabel("Power tolerance:")
+        options_layout.addWidget(self.power_threshold_label, row, 0)
+        self.power_threshold_text = QLineEdit()
+        self.power_threshold_text.setText(str(config["scan"]["power_threshold"]))
+        options_layout.addWidget(self.power_threshold_text, row, 1)
 
-        self.info_close_label = customtkinter.CTkLabel(
-            self, text="More info wait:", height=1
-        )
-        self.info_close_label.grid(row=12, column=0, padx=10, pady=(5, 0), sticky="w")
-        self.info_close_text = customtkinter.CTkEntry(
-            self,
-            validate="all",
-            validatecommand=(self.float_validation, "%P", True),
-        )
-        self.info_close_text.grid(row=12, column=1, padx=10, pady=(5, 0), sticky="ew")
-        self.info_close_text.insert(0, str(config["scan"]["timings"]["info_close"]))
+        main_layout.addWidget(options_group)
 
-        self.gov_close_label = customtkinter.CTkLabel(
-            self, text="Governor wait:", height=1
-        )
-        self.gov_close_label.grid(row=13, column=0, padx=10, pady=(5, 0), sticky="w")
-        self.gov_close_text = customtkinter.CTkEntry(
-            self,
-            validate="all",
-            validatecommand=(self.float_validation, "%P", True),
-        )
-        self.gov_close_text.grid(row=13, column=1, padx=10, pady=(5, 0), sticky="ew")
-        self.gov_close_text.insert(0, str(config["scan"]["timings"]["gov_close"]))
+        # Timing Settings Group
+        timing_group = QGroupBox("Timing Settings")
+        timing_layout = QGridLayout()
+        timing_group.setLayout(timing_layout)
 
-        # Move schedule frame up
-        self.schedule_frame = ScheduleFrame(self)
-        self.schedule_frame.grid(
-            row=14, column=0, padx=10, pady=(5, 0), sticky="ew", columnspan=2
-        )
+        self.info_close_label = QLabel("More info wait:")
+        timing_layout.addWidget(self.info_close_label, 0, 0)
+        self.info_close_text = QLineEdit()
+        self.info_close_text.setText(str(config["scan"]["timings"]["info_close"]))
+        timing_layout.addWidget(self.info_close_text, 0, 1)
 
-        # Move output options down
+        self.gov_close_label = QLabel("Governor wait:")
+        timing_layout.addWidget(self.gov_close_label, 1, 0)
+        self.gov_close_text = QLineEdit()
+        self.gov_close_text.setText(str(config["scan"]["timings"]["gov_close"]))
+        timing_layout.addWidget(self.gov_close_text, 1, 1)
+
+        main_layout.addWidget(timing_group)
+
+        # Schedule frame
+        schedule_group = QGroupBox("Schedule")
+        schedule_layout = QVBoxLayout()
+        schedule_group.setLayout(schedule_layout)
+        self.schedule_frame = ScheduleFrame()
+        schedule_layout.addWidget(self.schedule_frame)
+        main_layout.addWidget(schedule_group)
+
+        # Output options
+        output_group = QGroupBox("Output Formats")
+        output_layout = QVBoxLayout()
+        output_group.setLayout(output_layout)
+
         output_values = [
             {
                 "name": "xlsx",
@@ -397,121 +357,112 @@ class BasicOptionsFame(customtkinter.CTkFrame):
                 "group": "Output Format",
             },
         ]
-        self.output_options = HorizontalCheckboxFrame(
-            self, output_values, "Output Format", 3
-        )
-        self.output_options.grid(
-            row=15, column=0, padx=10, pady=(5, 0), sticky="ew", columnspan=2
-        )
+        self.output_options = HorizontalCheckboxFrame(output_values, "Output Format", 3)
+        output_layout.addWidget(self.output_options)
+        main_layout.addWidget(output_group)
+
+        # Add vertical spacer at the bottom to push everything up
+        main_layout.addStretch()
 
     def set_uuid(self, uuid):
-        self.scan_uuid_var.set(uuid)
+        self.scan_uuid_var.setText(uuid)
 
     def update_port(self, name=""):
-        self.adb_port_text.delete(0, len(self.adb_port_text.get()))
-
-        if name != "":
-            self.adb_port_text.insert(0, get_bluestacks_port(name, self.config))
-        else:
-            self.adb_port_text.insert(
-                0, get_bluestacks_port(self.bluestacks_instance_text.get(), self.config)
-            )
-        return True
+        self.adb_port_text.clear()
+        try:
+            if name != "":
+                port = get_bluestacks_port(name, self.config)
+            else:
+                port = get_bluestacks_port(self.bluestacks_instance_text.text(), self.config)
+            self.adb_port_text.setText(str(port))
+        except Exception as e:
+            logger.error(f"Error getting port: {str(e)}")
+            self.adb_port_text.setText("")
 
     def get_options(self):
         formats = OutputFormats()
         formats.from_dict(self.output_options.get())
         return {
-            "uuid": self.scan_uuid_var.get(),
-            "name": self.scan_name_text.get(),
-            "port": int(self.adb_port_text.get()),
-            "amount": int(self.scan_amount_text.get()),
-            "resume": self.resume_scan_checkbox.get(),
-            "adv_scroll": self.new_scroll_switch.get(),
-            "inactives": self.track_inactives_switch.get(),
-            "validate_kills": self.validate_kills_switch.get(),
-            "reconstruct": self.reconstruct_fails_switch.get(),
-            "validate_power": self.validate_power_switch.get(),
-            "power_threshold": self.power_threshold_text.get(),
-            "info_time": float(self.info_close_text.get()),
-            "gov_time": float(self.gov_close_text.get()),
+            "uuid": self.scan_uuid_var.text(),
+            "name": self.scan_name_text.text(),
+            "port": int(self.adb_port_text.text()),
+            "amount": int(self.scan_amount_text.text()),
+            "resume": self.resume_scan_checkbox.isChecked(),
+            "adv_scroll": self.new_scroll_switch.isChecked(),
+            "inactives": self.track_inactives_switch.isChecked(),
+            "validate_kills": self.validate_kills_switch.isChecked(),
+            "reconstruct": self.reconstruct_fails_switch.isChecked(),
+            "validate_power": self.validate_power_switch.isChecked(),
+            "power_threshold": self.power_threshold_text.text(),
+            "info_time": float(self.info_close_text.text()),
+            "gov_time": float(self.gov_close_text.text()),
             "formats": formats,
         }
 
     def options_valid(self) -> bool:
         val_errors: List[str] = []
 
-        if not is_string_int(self.adb_port_text.get()):
+        if not is_string_int(self.adb_port_text.text()):
             val_errors.append("Adb port invalid")
 
-        if not is_string_int(self.scan_amount_text.get()):
+        if not is_string_int(self.scan_amount_text.text()):
             val_errors.append("People to scan invalid")
 
-        if not is_string_float(self.info_close_text.get()):
+        if not is_string_float(self.info_close_text.text()):
             val_errors.append("Info timing invalid")
 
-        if not is_string_float(self.gov_close_text.get()):
+        if not is_string_float(self.gov_close_text.text()):
             val_errors.append("Governor timing invalid")
 
         if (
-            not is_string_int(self.power_threshold_text.get())
-        ) and self.validate_power_switch.get():
+            not is_string_int(self.power_threshold_text.text())
+        ) and self.validate_power_switch.isChecked():
             val_errors.append("Power tolerance invalid")
 
         if all(value == False for value in self.output_options.get().values()):
             val_errors.append("No output format checked")
 
-        print(self.output_options.get())
-
         if len(val_errors) > 0:
-            InfoDialog(
-                "Invalid input",
-                "\n".join(val_errors),
-                f"200x{100 + len(val_errors) * 12}",
-            )
+            QMessageBox.critical(self, "Invalid input", "\n".join(val_errors))
 
-        name_valitation = sanitize_scanname(self.scan_name_text.get())
+        name_valitation = sanitize_scanname(self.scan_name_text.text())
         if not name_valitation.valid:
-            InfoDialog(
+            QMessageBox.critical(
+                self,
                 "Name is not valid",
                 f"Name is not valid and got changed to:\n{name_valitation.result}\n"
                 + f"Please check the new name and press start again.",
-                f"400x{100 + 3 * 12}",
             )
-            self.scan_name_text.delete(0, customtkinter.END)
-            self.scan_name_text.insert(0, name_valitation.result)
+            self.scan_name_text.setText(name_valitation.result)
 
         return len(val_errors) == 0 and name_valitation.valid
 
-
-class ScanOptionsFrame(customtkinter.CTkFrame):
-    def __init__(self, master, values):
-        super().__init__(master)
-        self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(0, weight=1)
-        self.grid_rowconfigure(1, weight=1)
-        self.grid_rowconfigure(2, weight=1)
+class ScanOptionsFrame(QFrame):
+    def __init__(self, values):
+        super().__init__()
+        self.setMinimumWidth(300)
+        layout = QVBoxLayout()
+        self.setLayout(layout)
         self.values = values
-        self.first_screen_options_frame = CheckboxFrame(self, values, "First Screen")
-        self.second_screen_options_frame = CheckboxFrame(self, values, "Second Screen")
-        self.third_screen_options_frame = CheckboxFrame(self, values, "Third Screen")
 
-        self.first_screen_options_frame.grid(
-            row=0, column=0, padx=10, pady=0, sticky="ewsn"
-        )
+        screens_group = QGroupBox("Scan Options")
+        screens_layout = QVBoxLayout()
+        screens_group.setLayout(screens_layout)
 
-        self.second_screen_options_frame.grid(
-            row=1, column=0, padx=10, pady=0, sticky="ewsn"
-        )
+        self.first_screen_options_frame = CheckboxFrame(values, "First Screen")
+        self.second_screen_options_frame = CheckboxFrame(values, "Second Screen")
+        self.third_screen_options_frame = CheckboxFrame(values, "Third Screen")
 
-        self.third_screen_options_frame.grid(
-            row=2, column=0, padx=10, pady=(0, 10), sticky="ewsn"
-        )
+        screens_layout.addWidget(self.first_screen_options_frame)
+        screens_layout.addWidget(self.second_screen_options_frame)
+        screens_layout.addWidget(self.third_screen_options_frame)
+        layout.addWidget(screens_group)
 
-        self.save_button = customtkinter.CTkButton(
-            self, text="Save Preferences", command=self.save_preferences
-        )
-        self.save_button.grid(row=3, column=0, padx=10, pady=10, sticky="ew")
+        self.save_button = QPushButton("Save Preferences")
+        self.save_button.setMinimumHeight(30)
+        self.save_button.clicked.connect(self.save_preferences)
+        layout.addWidget(self.save_button)
+        layout.addStretch()
 
     def get(self):
         options = {}
@@ -524,358 +475,168 @@ class ScanOptionsFrame(customtkinter.CTkFrame):
         preferences = self.get()
         with open("scan_preferences.json", "w") as f:
             json.dump(preferences, f)
-        messagebox.showinfo("Preferences Saved", "Your scan preferences have been saved.")
+        QMessageBox.information(self, "Preferences Saved", "Your scan preferences have been saved.")
 
+class AdditionalStatusInfo(QFrame):
+    def __init__(self):
+        super().__init__()
+        self.values: Dict[str, QLabel] = {}
+        layout = QGridLayout()
+        layout.setSpacing(10)  # Add more spacing between elements
+        self.setLayout(layout)
 
-class AdditionalStatusInfo(customtkinter.CTkFrame):
-    def __init__(self, master):
-        super().__init__(master)
-        self.values: Dict[str, customtkinter.StringVar] = {}
-        self.grid_columnconfigure(0, weight=1)
-        self.grid_columnconfigure(1, weight=1)
-        self.grid_columnconfigure(2, weight=1)
-        self.gov_number_var = customtkinter.StringVar(value="550 of 600")
+        # Create labels with improved styling
+        self.gov_number_var = QLabel("550 of 600")
+        self.gov_number_var.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.gov_number_var.setStyleSheet("font-size: 12pt; font-weight: bold;")
         self.values.update({"govs": self.gov_number_var})
-        self.approx_time_remaining_var = customtkinter.StringVar(value="0:16:34")
+
+        self.approx_time_remaining_var = QLabel("0:16:34")
+        self.approx_time_remaining_var.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.approx_time_remaining_var.setStyleSheet("font-size: 12pt; color: #2060c0;")
         self.values.update({"eta": self.approx_time_remaining_var})
-        self.govs_skipped_var = customtkinter.StringVar(value="Skipped: 20")
+
+        self.govs_skipped_var = QLabel("Skipped: 20")
+        self.govs_skipped_var.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.values.update({"skipped": self.govs_skipped_var})
-        self.last_time_var = customtkinter.StringVar(value="13:55:30")
+
+        self.last_time_var = QLabel("13:55:30")
+        self.last_time_var.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.values.update({"time": self.last_time_var})
 
-        self.last_time = customtkinter.CTkLabel(self, text="Current time", height=1)
-        self.last_time.grid(row=0, column=0, padx=10, pady=5, sticky="w")
+        # Create header labels
+        time_label = QLabel("Current Time")
+        time_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        time_label.setStyleSheet("font-weight: bold;")
 
-        self.last_time_text = customtkinter.CTkLabel(
-            self, textvariable=self.last_time_var, height=1
-        )
-        self.last_time_text.grid(row=1, column=0, padx=10, pady=5, sticky="w")
+        progress_label = QLabel("Progress")
+        progress_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        progress_label.setStyleSheet("font-weight: bold;")
 
-        self.eta = customtkinter.CTkLabel(self, text="ETA", height=1)
-        self.eta.grid(row=0, column=2, padx=10, pady=5, sticky="e")
-        self.time_remaining_text = customtkinter.CTkLabel(
-            self, textvariable=self.approx_time_remaining_var, height=1
-        )
-        self.time_remaining_text.grid(row=1, column=2, padx=10, pady=5, sticky="e")
+        eta_label = QLabel("Estimated Time")
+        eta_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        eta_label.setStyleSheet("font-weight: bold;")
 
-        self.gov_number_text = customtkinter.CTkLabel(
-            self, textvariable=self.gov_number_var, height=1
-        )
-        self.gov_number_text.grid(row=0, column=1, pady=5, sticky="ew")
+        # Layout the widgets in a grid
+        layout.addWidget(time_label, 0, 0)
+        layout.addWidget(progress_label, 0, 1)
+        layout.addWidget(eta_label, 0, 2)
 
-        self.govs_skipped_text = customtkinter.CTkLabel(
-            self, textvariable=self.govs_skipped_var, height=1
-        )
-        self.govs_skipped_text.grid(row=1, column=1, pady=5)
+        layout.addWidget(self.last_time_var, 1, 0)
+        layout.addWidget(self.gov_number_var, 1, 1)
+        layout.addWidget(self.approx_time_remaining_var, 1, 2)
+        
+        # Add skipped count in its own row
+        layout.addWidget(self.govs_skipped_var, 2, 1)
 
     def set_var(self, key, value):
         if key in self.values:
-            self.values[key].set(value)
+            self.values[key].setText(value)
 
-
-class LastGovernorInfo(customtkinter.CTkFrame):
-    def __init__(self, master, values):
-        super().__init__(master)
-        self.grid_columnconfigure(0, weight=1)
-        self.grid_columnconfigure(1, weight=1)
+class LastGovernorInfo(QFrame):
+    def __init__(self, values):
+        super().__init__()
+        self.setMinimumWidth(350)
+        main_layout = QVBoxLayout()
+        self.setLayout(main_layout)
+        
+        # Governor info group
+        gov_group = QGroupBox("Governor Information")
+        gov_layout = QGridLayout()
+        gov_group.setLayout(gov_layout)
+        
         self.values = values
-        self.entries: List[customtkinter.CTkLabel] = []
-        self.labels: List[customtkinter.CTkLabel] = []
-        self.variables: Dict[str, customtkinter.StringVar] = {}
-
-        self.additional_stats = AdditionalStatusInfo(self)
-        self.additional_stats.grid(
-            row=0, column=0, columnspan=2, pady=(0, 5), sticky="ewsn"
-        )
-
-        offset = 1
+        self.entries: List[QLabel] = []
+        self.labels: List[QLabel] = []
+        self.variables: Dict[str, QLabel] = {}
 
         for i, value in enumerate(self.values):
-            variable = customtkinter.StringVar(master=self, name=value["name"])
-            label = customtkinter.CTkLabel(self, text=value["name"], height=1)
-            entry = customtkinter.CTkLabel(self, textvariable=variable, height=1)
+            variable = QLabel()
+            variable.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            label = QLabel(value["name"])
+            label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
-            label.grid(
-                row=i + offset,  # % ceil(len(values) / 2),
-                column=value["col"],
-                padx=10,
-                pady=2,
-                sticky="w",
-            )
-            entry.grid(
-                row=i + offset,  # % ceil(len(values) / 2),
-                column=value["col"] + 1,
-                padx=(10, 30),
-                pady=2,
-                sticky="w",
-            )
+            gov_layout.addWidget(label, i, 0)
+            gov_layout.addWidget(variable, i, 1)
 
             self.variables.update({value["name"]: variable})
             self.labels.append(label)
-            self.entries.append(entry)
+            self.entries.append(variable)
 
-        # Additional Info
+        main_layout.addWidget(gov_group)
+        
+        # Stats group with current state
+        stats_group = QGroupBox("Scan Status")
+        stats_layout = QVBoxLayout()
+        stats_group.setLayout(stats_layout)
+        
+        self.additional_stats = AdditionalStatusInfo()
+        stats_layout.addWidget(self.additional_stats)
+
+        self.current_state = QLabel("Not started")
+        self.current_state.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.current_state.setStyleSheet("font-weight: bold; color: #404040; padding-top: 8px;")
+        stats_layout.addWidget(self.current_state)
+        
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setMinimumHeight(25)
+        stats_layout.addWidget(self.progress_bar)
+        self.progress_bar.setValue(0)
+        
+        main_layout.addWidget(stats_group)
+        main_layout.addStretch()
 
     def set(self, values):
         for key, value in values.items():
             if key in self.variables:
                 if isinstance(value, int):
-                    self.variables[key].set(f"{value:,}")
+                    self.variables[key].setText(f"{value:,}")
                 else:
-                    self.variables[key].set(value)
+                    self.variables[key].setText(value)
             else:
                 self.additional_stats.set_var(key, value)
 
-
-class TimePickerDialog(customtkinter.CTkToplevel):
-    def __init__(self, parent):
-        super().__init__(parent)
-        self.title("Schedule Scan")
-        
-        # Make modal
-        self.transient(parent)
-        self.grab_set()
-        
-        # Center the dialog
-        self.geometry("300x400")
-        
-        # Configure grid
-        self.grid_columnconfigure(0, weight=1)
-        
-        # Add calendar
-        self.calendar = tkcalendar.Calendar(
-            self,
-            selectmode='day',
-            date_pattern='y-mm-dd',
-            mindate=date.today()
-        )
-        self.calendar.grid(row=0, column=0, padx=10, pady=10, sticky="ew")
-        
-        # Time frame
-        self.time_frame = customtkinter.CTkFrame(self)
-        self.time_frame.grid(row=1, column=0, padx=10, pady=10, sticky="ew")
-        self.time_frame.grid_columnconfigure((0,1,2,3), weight=1)
-        
-        # Hour input and validation
-        self.hour_label = customtkinter.CTkLabel(self.time_frame, text="Hour:")
-        self.hour_label.grid(row=0, column=0, padx=5, pady=5)
-        
-        self.hour_var = customtkinter.StringVar(value="00")
-        self.hour_entry = customtkinter.CTkEntry(
-            self.time_frame,
-            width=50,
-            textvariable=self.hour_var,
-            validate="key",
-            validatecommand=(self.register(self.validate_hour), "%P")
-        )
-        self.hour_entry.grid(row=0, column=1, padx=5, pady=5)
-        
-        # Hour dropdown
-        self.hour_menu = customtkinter.CTkOptionMenu(
-            self.time_frame,
-            values=[f"{i:02d}" for i in range(24)],
-            command=self.hour_selected,
-            width=60
-        )
-        self.hour_menu.grid(row=0, column=2, padx=5, pady=5)
-        
-        # Minute input and validation
-        self.minute_label = customtkinter.CTkLabel(self.time_frame, text="Minute:")
-        self.minute_label.grid(row=1, column=0, padx=5, pady=5)
-        
-        self.minute_var = customtkinter.StringVar(value="00")
-        self.minute_entry = customtkinter.CTkEntry(
-            self.time_frame,
-            width=50,
-            textvariable=self.minute_var,
-            validate="key",
-            validatecommand=(self.register(self.validate_minute), "%P")
-        )
-        self.minute_entry.grid(row=1, column=1, padx=5, pady=5)
-        
-        # Minute dropdown
-        self.minute_menu = customtkinter.CTkOptionMenu(
-            self.time_frame,
-            values=[f"{i:02d}" for i in range(60)],
-            command=self.minute_selected,
-            width=60
-        )
-        self.minute_menu.grid(row=1, column=2, padx=5, pady=5)
-        
-        # Buttons
-        self.button_frame = customtkinter.CTkFrame(self)
-        self.button_frame.grid(row=2, column=0, padx=10, pady=10, sticky="ew")
-        self.button_frame.grid_columnconfigure((0,1), weight=1)
-        
-        self.ok_button = customtkinter.CTkButton(
-            self.button_frame,
-            text="OK",
-            command=self.ok_pressed
-        )
-        self.ok_button.grid(row=0, column=0, padx=5, pady=5)
-        
-        self.cancel_button = customtkinter.CTkButton(
-            self.button_frame,
-            text="Cancel",
-            command=self.cancel_pressed
-        )
-        self.cancel_button.grid(row=0, column=1, padx=5, pady=5)
-        
-        self.result = None
-
-    def validate_hour(self, value):
-        """Validate hour input"""
-        if value == "":
-            return True
-        try:
-            hour = int(value)
-            if 0 <= hour <= 23:
-                if len(value) == 2:
-                    self.hour_var.set(f"{hour:02d}")
-                return True
-            return False
-        except ValueError:
-            return False
-
-    def validate_minute(self, value):
-        """Validate minute input"""
-        if value == "":
-            return True
-        try:
-            minute = int(value)
-            if 0 <= minute <= 59:
-                if len(value) == 2:
-                    self.minute_var.set(f"{minute:02d}")
-                return True
-            return False
-        except ValueError:
-            return False
-
-    def hour_selected(self, value):
-        """Update hour entry when dropdown is used"""
-        self.hour_var.set(value)
-
-    def minute_selected(self, value):
-        """Update minute entry when dropdown is used"""
-        self.minute_var.set(value)
-        
-    def ok_pressed(self):
-        selected_date = self.calendar.selection_get()
-        try:
-            hour = int(self.hour_var.get())
-            minute = int(self.minute_var.get())
-            if not (0 <= hour <= 23 and 0 <= minute <= 59):
-                messagebox.showerror("Error", "Invalid time format")
-                return
-            
-            self.result = datetime.datetime.combine(
-                selected_date if selected_date else date.today(),
-                datetime.time(hour=hour, minute=minute)
-            )
-            self.destroy()
-        except ValueError:
-            messagebox.showerror("Error", "Please enter valid time values")
-        
-    def cancel_pressed(self):
-        self.destroy()
-
-class ScheduleFrame(customtkinter.CTkFrame):
-    def __init__(self, master):
-        super().__init__(master)
-        self.grid_columnconfigure(0, weight=1)
-        self.grid_columnconfigure(1, weight=1)
-
-        self.schedule_label = customtkinter.CTkLabel(self, text="Schedule scan:", height=1)
-        self.schedule_label.grid(row=0, column=0, padx=10, pady=(5, 0), sticky="w")
-        self.schedule_switch = customtkinter.CTkSwitch(self, text="", onvalue=True, offvalue=False)
-        self.schedule_switch.grid(row=0, column=1, padx=10, pady=(5, 0), sticky="w")
-
-        self.time_label = customtkinter.CTkLabel(self, text="Start time:", height=1)
-        self.time_label.grid(row=1, column=0, padx=10, pady=(5, 0), sticky="w")
-        self.time_button = customtkinter.CTkButton(
-            self, 
-            text="Set time",
-            command=self.set_time,
-            state="disabled"
-        )
-        self.time_button.grid(row=1, column=1, padx=10, pady=(5, 0), sticky="ew")
-        
-        self.scheduled_time = None
-        self.schedule_switch.configure(command=self.toggle_schedule)
-
-    def set_time(self):
-        dialog = TimePickerDialog(self)
-        self.wait_window(dialog)
-        
-        if dialog.result:
-            scheduled_time = dialog.result
-            if scheduled_time < datetime.datetime.now():
-                messagebox.showerror("Error", "Selected time is in the past")
-                return
-                
-            self.scheduled_time = scheduled_time
-            self.time_button.configure(
-                text=scheduled_time.strftime("%Y-%m-%d %H:%M")
-            )
-
-    def toggle_schedule(self):
-        if self.schedule_switch.get():
-            self.time_button.configure(state="normal")
-        else:
-            self.time_button.configure(state="disabled")
-            self.scheduled_time = None
-            self.time_button.configure(text="Set time")
-
-    def get_scheduled_time(self):
-        if self.schedule_switch.get() and self.scheduled_time:
-            return self.scheduled_time
-        return None
-
-
-class App(customtkinter.CTk):
+class App(QMainWindow):
+    # Add signals for thread-safe UI updates
+    update_ui_signal = pyqtSignal(dict)
+    update_state_signal = pyqtSignal(str)
+    schedule_scan_signal = pyqtSignal(datetime.datetime)
+    
     def __init__(self):
         super().__init__()
+        # Connect signals to slots
+        self.update_ui_signal.connect(self._update_ui)
+        self.update_state_signal.connect(self._update_state)
+        self.schedule_scan_signal.connect(self._handle_scheduled_scan)
+        
+        self.log_file: TextIOWrapper | None = None
 
         file_validation = validate_installation()
         if not file_validation.success:
-            self.withdraw()
-            dia = InfoDialog(
-                "Validation failed",
-                "\n".join(file_validation.messages),
-                "760x200",
-                self.close_program,
-            )
-            self.wait_window(dia)
+            QMessageBox.critical(self, "Validation failed", "\n".join(file_validation.messages))
+            self.close()
 
         try:
             self.config = load_config()
         except ConfigError as e:
             logger.fatal(str(e))
-            dia = InfoDialog(
-                "Invalid Config",
-                str(e),
-                "360x200",
-                self.close_program,
-            )
-            self.wait_window(dia)
+            QMessageBox.critical(self, "Invalid Config", str(e))
+            self.close()
 
-        self.title("Kingdom Scanner by Cyrexxis")
-        self.geometry("800x690")
-        self.grid_columnconfigure(0, weight=1)
-        self.grid_columnconfigure(1, weight=2)
-        self.grid_columnconfigure(2, weight=2)
-        self.grid_columnconfigure(3, weight=5)
-        self.grid_rowconfigure(0, weight=1)
-        self.grid_rowconfigure(1, weight=1)
-        self.grid_rowconfigure(2, weight=1)
+        self.setWindowTitle("Kingdom Scanner by Cyrexxis")
+        self.setGeometry(100, 100, 900, 650)  # Reduced window size
 
-        self.options_frame = BasicOptionsFame(self, self.config)
-        self.options_frame.grid(
-            row=0, column=1, padx=10, pady=(10, 0), sticky="ewsn", columnspan=2
-        )
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        main_layout = QHBoxLayout()
+        central_widget.setLayout(main_layout)
 
+        # Left panel: Scan options with controls
+        left_panel = QWidget()
+        left_layout = QVBoxLayout()
+        left_panel.setLayout(left_layout)
+        
         self.scan_options_frame = ScanOptionsFrame(
-            self,
             [
                 {"name": "ID", "default": True, "group": "First Screen"},
                 {"name": "Name", "default": True, "group": "First Screen"},
@@ -894,12 +655,42 @@ class App(customtkinter.CTk):
                 {"name": "Helps", "default": True, "group": "Third Screen"},
             ],
         )
-        self.scan_options_frame.grid(
-            row=0, column=0, padx=10, pady=10, sticky="ewsn", rowspan=2
-        )
+        left_layout.addWidget(self.scan_options_frame)
+
+        # Control buttons under scan options
+        controls_group = QGroupBox("Scan Controls")
+        controls_layout = QHBoxLayout()
+        controls_group.setLayout(controls_layout)
+
+        self.start_scan_button = QPushButton("Start Scan")
+        self.start_scan_button.setMinimumHeight(40)
+        self.start_scan_button.clicked.connect(self.start_scan)
+        controls_layout.addWidget(self.start_scan_button)
+
+        self.end_scan_button = QPushButton("End Scan")
+        self.end_scan_button.setMinimumHeight(40)
+        self.end_scan_button.setEnabled(False)
+        self.end_scan_button.clicked.connect(self.end_scan)
+        controls_layout.addWidget(self.end_scan_button)
+        
+        left_layout.addWidget(controls_group)
+        main_layout.addWidget(left_panel)
+
+        # Center panel: Basic options
+        center_panel = QWidget()
+        center_layout = QVBoxLayout()
+        center_panel.setLayout(center_layout)
+        
+        self.options_frame = BasicOptionsFrame(self.config)
+        center_layout.addWidget(self.options_frame)
+        main_layout.addWidget(center_panel)
+
+        # Right panel: Governor info with status and current state
+        right_panel = QWidget()
+        right_layout = QVBoxLayout()
+        right_panel.setLayout(right_layout)
 
         self.last_gov_frame = LastGovernorInfo(
-            self,
             [
                 {"name": "ID", "col": 0},
                 {"name": "Name", "col": 0},
@@ -920,74 +711,45 @@ class App(customtkinter.CTk):
                 {"name": "Alliance", "col": 0},
             ],
         )
-
-        self.last_gov_frame.set(
-            {
-                "ID": "12345678",
-                "Name": "Super Governor",
-                "Power": 100000000,
-                "Killpoints": 3000000000,
-                "T1 Kills": 0,
-                "T2 Kills": 0,
-                "T3 Kills": 0,
-                "T4 Kills": 0,
-                "T5 Kills": 10000000,
-                "T4+5 Kills": 10000000,
-                "Total Kills": 10000000,
-                "Ranged": 200000,
-                "Dead": 1000000,
-                "Rss Assistance": 9000000000,
-                "Helps": 90000,
-                "Alliance": "Biggest Alliance ever!",
-            }
-        )
-
-        self.last_gov_frame.grid(
-            row=0, column=3, padx=10, pady=(10, 10), sticky="ewsn", rowspan=2
-        )
-
-        self.start_scan_button = customtkinter.CTkButton(
-            self, text="Start scan", command=self.start_scan
-        )
-        self.start_scan_button.grid(row=1, column=1, padx=10, pady=10, sticky="ew")
-
-        self.end_scan_button = customtkinter.CTkButton(
-            self, text="End scan", command=self.end_scan, state="disabled"
-        )
-        self.end_scan_button.grid(row=1, column=2, padx=10, pady=10, sticky="ew")
-
-        self.current_state = customtkinter.CTkLabel(self, text="Not started", height=1)
-        self.current_state.grid(row=1, column=3, padx=10, pady=(10, 0), sticky="ewns")
-
-        self.progress_bar = customtkinter.CTkProgressBar(self)
-        self.progress_bar.grid(row=3, column=0, columnspan=4, padx=10, pady=10, sticky="ew")
-        self.progress_bar.set(0)
+        right_layout.addWidget(self.last_gov_frame)
+        main_layout.addWidget(right_panel)
+        
+        # Set stretch factors for panels
+        main_layout.setStretch(0, 1)  # Left panel
+        main_layout.setStretch(1, 2)  # Center panel
+        main_layout.setStretch(2, 1)  # Right panel
 
         self.load_preferences()
 
     def ask_confirm(self, msg) -> bool:
-        result = ConfirmDialog("No Governor found", msg, "200x110").get_input()
-        self.focus()
-        return result
+        result = QMessageBox.question(self, "No Governor found", msg)
+        return result == QMessageBox.StandardButton.Yes
 
     def close_program(self):
-        self.quit()
+        self.close()
 
     def start_scan(self):
         scheduled_time = self.options_frame.schedule_frame.get_scheduled_time()
         if scheduled_time:
             wait_seconds = (scheduled_time - datetime.datetime.now()).total_seconds()
             if wait_seconds > 0:
-                self.state_callback(f"Waiting to start at {scheduled_time.strftime('%H:%M')}")
-                self.after(int(wait_seconds * 1000), self.launch_scanner)
+                # Emit signal to handle scheduling in main thread
+                self.schedule_scan_signal.emit(scheduled_time)
                 return
         Thread(target=self.launch_scanner).start()
+
+    def _handle_scheduled_scan(self, scheduled_time):
+        # This runs in the main thread
+        self.state_callback(f"Waiting to start at {scheduled_time.strftime('%H:%M')}")
+        wait_ms = int((scheduled_time - datetime.datetime.now()).total_seconds() * 1000)
+        QTimer.singleShot(wait_ms, self.launch_scanner)
 
     def launch_scanner(self):
         if not self.options_frame.options_valid():
             return
 
-        self.start_scan_button.configure(state="disabled")
+        # Create scanner and objects in the thread where they'll be used
+        self.start_scan_button.setEnabled(False)
         scan_options = self.scan_options_frame.get()
         options = self.options_frame.get_options()
 
@@ -996,16 +758,19 @@ class App(customtkinter.CTk):
         self.config["scan"]["advanced_scroll"] = options["adv_scroll"]
 
         try:
-            # Activate end scan button
-            self.end_scan_button.configure(state="normal", text="End scan")
+            self.end_scan_button.setEnabled(True)
+            self.end_scan_button.setText("End scan")
 
+            # Create scanner in the worker thread
             self.kingdom_scanner = KingdomScanner(
                 self.config, scan_options, options["port"]
             )
             self.kingdom_scanner.set_governor_callback(self.governor_callback)
             self.kingdom_scanner.set_state_callback(self.state_callback)
             self.kingdom_scanner.set_continue_handler(self.ask_confirm)
-            self.options_frame.set_uuid(self.kingdom_scanner.run_id)
+            
+            # Set UUID through signal to be thread-safe
+            self.update_ui_signal.emit({"uuid": self.kingdom_scanner.run_id})
 
             logger.info(f"Scan started at {datetime.datetime.now()}")
             self.kingdom_scanner.start_scan(
@@ -1024,59 +789,56 @@ class App(customtkinter.CTk):
             logger.error(
                 f"ADB connection error at {datetime.datetime.now()}: " + str(error)
             )
-            InfoDialog(
+            QMessageBox.critical(
+                self,
                 "ADB Connection Error",
                 "An error with the ADB connection occurred. Please verify that you are using the correct port and that your device is properly connected.\nExact message: "
                 + str(error),
-                "300x160",
             )
             self.state_callback("Not started")
-            messagebox.showerror("Error", "ADB Connection Error: " + str(error))
         except ConfigError as error:
             logger.error(
                 f"Configuration error at {datetime.datetime.now()}: " + str(error)
             )
-            InfoDialog(
+            QMessageBox.critical(
+                self,
                 "Configuration Error",
                 "There was an error with the configuration. Please check your configuration settings.\nExact message: "
                 + str(error),
-                "300x160",
             )
             self.state_callback("Not started")
-            messagebox.showerror("Error", "Configuration Error: " + str(error))
         except Exception as error:
             logger.error(
                 f"Unexpected error at {datetime.datetime.now()}: " + str(error)
             )
-            InfoDialog(
+            QMessageBox.critical(
+                self,
                 "Unexpected Error",
                 "An unexpected error occurred. Please try again.\nExact message: "
                 + str(error),
-                "300x160",
             )
             self.state_callback("Not started")
-            messagebox.showerror("Error", "Unexpected Error: " + str(error))
         else:
             logger.info(f"Scan completed at {datetime.datetime.now()}")
-            messagebox.showinfo("Scan Complete", "The scan has been completed successfully.")
+            QMessageBox.information(self, "Scan Complete", "The scan has been completed successfully.")
         finally:
-            # Reset scan buttons
-            self.end_scan_button.configure(state="disabled", text="End scan")
-            self.start_scan_button.configure(state="normal")
+            self.end_scan_button.setEnabled(False)
+            self.end_scan_button.setText("End scan")
+            self.start_scan_button.setEnabled(True)
 
     def end_scan(self):
         self.kingdom_scanner.end_scan()
-        self.end_scan_button.configure(
-            state="disabled", text="Abort after next governor"
-        )
+        self.end_scan_button.setEnabled(False)
+        self.end_scan_button.setText("Abort after next governor")
 
     def governor_callback(self, gov_data: GovernorData, extra_data: AdditionalData):
         skipped_text = f"{extra_data.skipped_governors} skips"
         if extra_data.skipped_governors == 1:
             skipped_text = f"{extra_data.skipped_governors} skip"
 
-        self.last_gov_frame.set(
-            {
+        # Emit signal instead of directly updating UI
+        self.update_ui_signal.emit({
+            "governor_data": {
                 "ID": gov_data.id,
                 "Name": gov_data.name,
                 "Power": to_int_or(gov_data.power, "Unknown"),
@@ -1094,21 +856,51 @@ class App(customtkinter.CTk):
                 "Rss Gathered": to_int_or(gov_data.rss_gathered, "Unknown"),
                 "Helps": to_int_or(gov_data.helps, "Unknown"),
                 "Alliance": gov_data.alliance,
+            },
+            "extra_data": {
                 "govs": f"{extra_data.current_governor} of {extra_data.target_governor}",
                 "skipped": skipped_text,
                 "time": extra_data.current_time,
                 "eta": extra_data.eta(),
+            },
+            "progress": {
+                "current": extra_data.current_governor,
+                "total": extra_data.target_governor
             }
-        )
-        self.update_progress(extra_data.current_governor, extra_data.target_governor)
+        })
 
-    def update_progress(self, current_governor, target_governor):
-        progress = current_governor / target_governor
-        self.progress_bar.set(progress)
-        self.update_idletasks()
+    def _update_ui(self, data):
+        # Actual UI updates happen in main thread
+        if "uuid" in data:
+            self.options_frame.set_uuid(data["uuid"])
+            
+        if "governor_data" in data:
+            for key, value in data["governor_data"].items():
+                if key in self.last_gov_frame.variables:
+                    if isinstance(value, int):
+                        self.last_gov_frame.variables[key].setText(f"{value:,}")
+                    else:
+                        self.last_gov_frame.variables[key].setText(str(value))
+
+        if "extra_data" in data:
+            for key, value in data["extra_data"].items():
+                self.last_gov_frame.additional_stats.set_var(key, value)
+
+        if "progress" in data:
+            progress = int((data["progress"]["current"] / data["progress"]["total"]) * 100)
+            self.last_gov_frame.progress_bar.setValue(progress)
 
     def state_callback(self, state):
-        self.current_state.configure(text=state)
+        # Emit signal instead of directly updating UI
+        self.update_state_signal.emit(state)
+
+    def _update_state(self, state):
+        # Actual UI update happens in main thread
+        self.last_gov_frame.current_state.setText(state)
+
+    def update_progress(self, current_governor, target_governor):
+        # This method is no longer needed as progress is handled in _update_ui
+        pass
 
     def load_preferences(self):
         try:
@@ -1120,9 +912,16 @@ class App(customtkinter.CTk):
         except FileNotFoundError:
             pass
 
-app = App()
-app.report_callback_exception = ex_handler.handle_exception
-f = open(os.devnull, "w")
-sys.stdout = f
-sys.stderr = f
-app.mainloop()
+    def closeEvent(self, event):
+        if self.log_file:
+            self.log_file.close()
+        event.accept()
+
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    window = App()
+    window.show()
+    window.log_file = open(os.devnull, "w")
+    sys.stdout = window.log_file
+    sys.stderr = window.log_file
+    sys.exit(app.exec())
