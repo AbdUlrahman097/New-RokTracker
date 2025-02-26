@@ -15,10 +15,10 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QLabel, QPushButton, 
     QProgressBar, QFrame, QVBoxLayout, QHBoxLayout, QLineEdit,
     QCheckBox, QTabWidget, QGridLayout, QMessageBox, QGroupBox,
-    QSpacerItem, QSizePolicy
+    QSpacerItem, QSizePolicy, QSystemTrayIcon
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QMutex, QMutexLocker
-from PyQt6.QtGui import QIntValidator
+from PyQt6.QtGui import QIntValidator, QIcon
 
 logging.basicConfig(
     filename=str(get_app_root() / "seed-scanner.log"),
@@ -390,6 +390,12 @@ class App(QMainWindow):
         self.ui_mutex = QMutex()
         self.scanner_thread = None
         self.seed_scanner = None
+
+        # Initialize system tray
+        self.tray_icon = QSystemTrayIcon(self)
+        self.tray_icon.setIcon(QIcon("images/seed.png"))
+        self.tray_icon.setToolTip("Seed Scanner")
+        self.tray_icon.show()
         
         # Setup signal connection
         self.update_ui_signal.connect(self.update_ui_safely)
@@ -565,26 +571,83 @@ class App(QMainWindow):
             )
 
         except AdbError as error:
-            logger.error(f"ADB connection error at {datetime.datetime.now()}: " + str(error))
+            logger.error(f"ADB connection error at {datetime.datetime.now()}: {error}")
+            error_msg = (
+                "Failed to connect to BlueStacks via ADB. Please follow these troubleshooting steps:\n\n"
+                "1. Verify BlueStacks:\n"
+                "   - Check that BlueStacks is running\n"
+                "   - Confirm the instance name matches exactly: '{name}'\n"
+                "   - Try restarting BlueStacks\n\n"
+                "2. Check ADB Connection:\n"
+                "   - Verify ADB port {port} matches your BlueStacks instance\n"
+                "   - Run 'adb devices' to check connected devices\n"
+                "   - Try 'adb kill-server' followed by 'adb start-server'\n\n"
+                "3. Network/Firewall:\n"
+                "   - Check if firewall is blocking ADB connections\n"
+                "   - Ensure no other program is using port {port}\n\n"
+                "4. Game State:\n"
+                "   - Verify you're logged into Rise of Kingdoms\n"
+                "   - Ensure you have access to the Seed Store screen\n"
+                "   - Verify your civilization has access to seed features\n"
+                "   - Check your internet connection\n\n"
+                "5. Tools/Environment:\n"
+                "   - Verify platform-tools (adb.exe) exists in deps folder\n"
+                "   - Check if running as administrator helps\n\n"
+                "Error details: {error}"
+            ).format(name=options.get("name", ""), port=options["port"], error=str(error))
             self.update_ui_signal.emit({
                 "error": "ADB Connection Error",
-                "message": "An error with the ADB connection occurred. Please verify that you are using the correct port and that your device is properly connected.\nExact message: " + str(error)
+                "message": error_msg
             })
-            self.state_callback("Not started")
+            self.state_callback("Not started - ADB Error")
+
         except ConfigError as error:
-            logger.error(f"Configuration error at {datetime.datetime.now()}: " + str(error))
+            logger.error(f"Configuration error at {datetime.datetime.now()}: {error}")
+            error_msg = (
+                "Configuration error detected. Please check the following:\n\n"
+                "1. Config File:\n"
+                "   - Verify config.json exists in the application root\n"
+                "   - Check file permissions (read/write access)\n"
+                "   - Validate JSON syntax is correct\n\n"
+                "2. Required Settings:\n"
+                "   - Confirm all required settings are present\n"
+                "   - Check paths for seed scanner are configured\n"
+                "   - Verify BlueStacks configuration is correct\n\n"
+                "3. File Structure:\n"
+                "   - Check if all required folders exist (deps, tessdata)\n"
+                "   - Verify no required files are missing\n\n"
+                "4. Workspace:\n"
+                "   - Ensure working directory is writable\n"
+                "   - Check if log files can be created/written\n\n"
+                "5. Try These Steps:\n"
+                "   - Reset config.json to default values\n"
+                "   - Run application as administrator\n"
+                "   - Check seed-scanner.log for details\n\n"
+                "Error details: {error}"
+            ).format(error=str(error))
             self.update_ui_signal.emit({
                 "error": "Configuration Error",
-                "message": "There was an error with the configuration. Please check your configuration settings.\nExact message: " + str(error)
+                "message": error_msg
             })
-            self.state_callback("Not started")
+            self.state_callback("Not started - Config Error")
+
         except Exception as error:
-            logger.error(f"Unexpected error at {datetime.datetime.now()}: " + str(error))
+            logger.error(f"Unexpected error at {datetime.datetime.now()}: {error}")
+            error_msg = (
+                "An unexpected error occurred. Please try:\n\n"
+                "1. Restarting BlueStacks\n"
+                "2. Verifying you are logged into Rise of Kingdoms\n" 
+                "3. Checking your internet connection\n"
+                "4. Ensuring enough disk space for screenshots\n"
+                "5. Restarting the scanner application\n"
+                "6. Verifying you have access to seed view\n\n"
+                "Error details: {error}"
+            ).format(error=str(error))
             self.update_ui_signal.emit({
-                "error": "Unexpected Error", 
-                "message": "An unexpected error occurred. Please try again.\nExact message: " + str(error)
+                "error": "Unexpected Error",
+                "message": error_msg
             })
-            self.state_callback("Not started")
+            self.state_callback("Not started - Fatal Error")
         else:
             logger.info(f"Scan completed at {datetime.datetime.now()}")
             self.update_ui_signal.emit({
@@ -608,22 +671,65 @@ class App(QMainWindow):
             "eta": extra_data.eta(),
         })
 
-        self.last_batch_frame.set(batch_data)
+        # Use signal to update UI safely from thread
+        self.update_ui_signal.emit({"batch_data": batch_data})
+        
         total_pages = extra_data.target_governor // extra_data.govs_per_page
         if extra_data.target_governor % extra_data.govs_per_page != 0:
             total_pages += 1
-        # Explicitly convert float to int for progress bar
-        progress_value = int((extra_data.current_page / total_pages) * 100)
-        self.progress_bar.setValue(progress_value)
+        self.update_ui_signal.emit({
+            "progress": {
+                "current": extra_data.current_page,
+                "total": total_pages
+            }
+        })
 
     def state_callback(self, state):
-        self.current_state.setText(state)
+        self.update_ui_signal.emit({"state": state})
+
+    def show_notification(self, title: str, message: str, icon=QSystemTrayIcon.MessageIcon.Information):
+        """Show both a system notification and a message box"""
+        # System tray notification
+        self.tray_icon.showMessage(title, message, icon, 5000)
+
+        # Message box (use critical for errors, information for success)
+        if icon == QSystemTrayIcon.MessageIcon.Critical:
+            QMessageBox.critical(self, title, message)
+        else:
+            QMessageBox.information(self, title, message)
 
     def update_ui_safely(self, data):
-        if "error" in data:
-            QMessageBox.critical(self, data["error"], data["message"])
-        elif "success" in data:
-            QMessageBox.information(self, "Success", data["message"])
+        """Handle UI updates in a thread-safe way"""
+        with QMutexLocker(self.ui_mutex):
+            if "error" in data:
+                self.show_notification(
+                    data["error"],
+                    data["message"],
+                    QSystemTrayIcon.MessageIcon.Critical
+                )
+            elif "success" in data:
+                self.show_notification(
+                    "Scan Complete",
+                    data["message"],
+                    QSystemTrayIcon.MessageIcon.Information
+                )
+            elif "batch_data" in data:
+                self.last_batch_frame.set(data["batch_data"])
+            elif "progress" in data:
+                progress = data["progress"]
+                progress_value = round((progress["current"] / progress["total"]) * 100)
+                self.progress_bar.setValue(progress_value)
+                
+                # Flash taskbar on major progress milestones
+                if progress_value in [25, 50, 75, 100]:
+                    self.tray_icon.showMessage(
+                        "Scan Progress",
+                        f"Seed scan is {progress_value}% complete",
+                        QSystemTrayIcon.MessageIcon.Information,
+                        3000
+                    )
+            elif "state" in data:
+                self.current_state.setText(data["state"])
 
 
 class OutputFormats:
