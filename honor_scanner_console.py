@@ -61,6 +61,55 @@ def ask_abort(honor_scanner: HonorScanner) -> None:
         honor_scanner.end_scan()
 
 
+def load_scan_configuration(config: dict) -> dict:
+    """Load and validate scan configuration from user input."""
+    scan_config = {}
+    
+    scan_config['bluestacks_name'] = questionary.text(
+        message="Name of your bluestacks instance:",
+        default=config["general"]["bluestacks"]["name"]
+    ).unsafe_ask()
+    
+    scan_config['port'] = int(questionary.text(
+        f"Adb port of device (detected {get_bluestacks_port(scan_config['bluestacks_name'], config)}):",
+        default=str(get_bluestacks_port(scan_config['bluestacks_name'], config)),
+        validate=lambda port: is_string_int(port)
+    ).unsafe_ask())
+    
+    scan_config['kingdom'] = questionary.text(
+        message="Kingdom name (used for file name):",
+        default=config["scan"]["kingdom_name"]
+    ).unsafe_ask()
+
+    validated_name = sanitize_scanname(scan_config['kingdom'])
+    while not validated_name.valid:
+        scan_config['kingdom'] = questionary.text(
+            message="Kingdom name (Previous name was invalid):",
+            default=validated_name.result
+        ).unsafe_ask()
+        validated_name = sanitize_scanname(scan_config['kingdom'])
+
+    scan_config['scan_amount'] = int(questionary.text(
+        message="Number of people to scan:",
+        validate=lambda port: is_string_int(port),
+        default=str(config["scan"]["people_to_scan"])
+    ).unsafe_ask())
+
+    return scan_config
+
+def safe_scan_execution(honor_scanner: HonorScanner, **scan_params) -> None:
+    """Execute scan with proper error handling."""
+    try:
+        honor_scanner.start_scan(**scan_params)
+    except AdbError as error:
+        logger.error(f"ADB Connection Error: {error}")
+        console.print(f"[red]ADB Connection Error[/red]: {error}")
+        sys.exit(4)
+    except Exception as e:
+        logger.error(f"Scan Error: {e}")
+        console.print(f"[red]Scan Error[/red]: {e}")
+        sys.exit(5)
+
 def main():
     logger.info("Validating installation")
     if not validate_installation().success:
@@ -86,86 +135,40 @@ def main():
         + get_supported_langs(str(root_dir / "deps" / "tessdata"))
     )
 
-    try:
-        logger.info("Prompting user for Bluestacks instance name")
-        bluestacks_device_name = questionary.text(
-            message="Name of your bluestacks instance:",
-            default=config["general"]["bluestacks"]["name"],
-        ).unsafe_ask()
+    scan_config = load_scan_configuration(config)
 
-        logger.info("Prompting user for ADB port")
-        bluestacks_port = int(
-            questionary.text(
-                f"Adb port of device (detected {get_bluestacks_port(bluestacks_device_name, config)}):",
-                default=str(get_bluestacks_port(bluestacks_device_name, config)),
-                validate=lambda port: is_string_int(port),
-            ).unsafe_ask()
-        )
+    save_formats = OutputFormats()
+    save_formats_tmp = questionary.checkbox(
+        "In what format should the result be saved?",
+        choices=[
+            questionary.Choice(
+                "Excel (xlsx)",
+                value="xlsx",
+                checked=config["scan"]["formats"]["xlsx"],
+            ),
+            questionary.Choice(
+                "Comma seperated values (csv)",
+                value="csv",
+                checked=config["scan"]["formats"]["csv"],
+            ),
+            questionary.Choice(
+                "JSON Lines (jsonl)",
+                value="jsonl",
+                checked=config["scan"]["formats"]["jsonl"],
+            ),
+        ],
+    ).unsafe_ask()
 
-        logger.info("Prompting user for kingdom name")
-        kingdom = questionary.text(
-            message="Kingdom name (used for file name):",
-            default=config["scan"]["kingdom_name"],
-        ).unsafe_ask()
-
-        validated_name = sanitize_scanname(kingdom)
-        while not validated_name.valid:
-            kingdom = questionary.text(
-                message="Kingdom name (Previous name was invalid):",
-                default=validated_name.result,
-            ).unsafe_ask()
-            validated_name = sanitize_scanname(kingdom)
-
-        logger.info("Prompting user for number of people to scan")
-        scan_amount = int(
-            questionary.text(
-                message="Number of people to scan:",
-                validate=lambda port: is_string_int(port),
-                default=str(config["scan"]["people_to_scan"]),
-            ).unsafe_ask()
-        )
-
-        logger.info("Prompting user for output formats")
-        save_formats = OutputFormats()
-        save_formats_tmp = questionary.checkbox(
-            "In what format should the result be saved?",
-            choices=[
-                questionary.Choice(
-                    "Excel (xlsx)",
-                    value="xlsx",
-                    checked=config["scan"]["formats"]["xlsx"],
-                ),
-                questionary.Choice(
-                    "Comma seperated values (csv)",
-                    value="csv",
-                    checked=config["scan"]["formats"]["csv"],
-                ),
-                questionary.Choice(
-                    "JSON Lines (jsonl)",
-                    value="jsonl",
-                    checked=config["scan"]["formats"]["jsonl"],
-                ),
-            ],
-        ).unsafe_ask()
-
-        if save_formats_tmp == [] or save_formats_tmp == None:
-            logger.info("No formats selected, exiting")
-            console.print("Exiting, no formats selected.")
-            return
-        else:
-            save_formats.from_list(save_formats_tmp)
-    except ValueError as e:
-        logger.error(f"Value error: {str(e)}")
-        console.print(f"Value error: {str(e)}")
-        sys.exit(3)
-    except Exception as e:
-        logger.error(f"Unexpected error: {str(e)}")
-        console.print(f"Unexpected error: {str(e)}")
-        sys.exit(3)
+    if not save_formats_tmp:
+        logger.info("No formats selected, exiting")
+        console.print("Exiting, no formats selected.")
+        return
+    
+    save_formats.from_list(save_formats_tmp)
 
     try:
         logger.info("Initializing HonorScanner")
-        honor_scanner = HonorScanner(bluestacks_port, config)
+        honor_scanner = HonorScanner(scan_config['port'], config)
         honor_scanner.set_batch_callback(print_batch)
 
         logger.info(f"Scan UUID: {honor_scanner.run_id}")
@@ -176,7 +179,12 @@ def main():
         signal.signal(signal.SIGINT, lambda _, __: ask_abort(honor_scanner))
 
         logger.info("Starting scan")
-        honor_scanner.start_scan(kingdom, scan_amount, save_formats)
+        safe_scan_execution(
+            honor_scanner,
+            kingdom=scan_config['kingdom'],
+            scan_amount=scan_config['scan_amount'],
+            save_formats=save_formats
+        )
     except AdbError as error:
         logger.error(
             "An error with the adb connection occured (probably wrong port). Exact message: "
