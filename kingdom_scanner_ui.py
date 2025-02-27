@@ -177,12 +177,25 @@ class ScheduleFrame(QFrame):
         self.time_button.setEnabled(False)
         self.time_button.clicked.connect(self.set_time)
         
+        self.countdown_label = QLabel()
+        self.countdown_label.setStyleSheet("color: #2060c0; font-weight: bold;")
+        self.countdown_label.hide()
+        
+        self.cancel_button = QPushButton("Cancel Schedule")
+        self.cancel_button.clicked.connect(self.cancel_schedule)
+        self.cancel_button.hide()
+        
         layout.addWidget(QLabel("Schedule scan:"), 0, 0)
         layout.addWidget(self.schedule_switch, 0, 1)
         layout.addWidget(QLabel("Start time:"), 1, 0)
         layout.addWidget(self.time_button, 1, 1)
+        layout.addWidget(self.countdown_label, 2, 0, 1, 2)
+        layout.addWidget(self.cancel_button, 3, 0, 1, 2)
         
         self.scheduled_time = None
+        self.countdown_timer = QTimer()
+        self.countdown_timer.timeout.connect(self.update_countdown)
+        
         self.schedule_switch.stateChanged.connect(self.toggle_schedule)
 
     def set_time(self):
@@ -198,12 +211,54 @@ class ScheduleFrame(QFrame):
                 self.time_button.setText(
                     scheduled_time.strftime("%Y-%m-%d %H:%M")
                 )
+                self.start_countdown()
 
     def toggle_schedule(self):
-        self.time_button.setEnabled(self.schedule_switch.isChecked())
-        if not self.schedule_switch.isChecked():
-            self.scheduled_time = None
-            self.time_button.setText("Set time")
+        is_checked = self.schedule_switch.isChecked()
+        self.time_button.setEnabled(is_checked)
+        if not is_checked:
+            self.cancel_schedule()
+
+    def start_countdown(self):
+        if self.scheduled_time:
+            self.countdown_label.show()
+            self.cancel_button.show()
+            self.update_countdown()
+            self.countdown_timer.start(1000)  # Update every second
+
+    def update_countdown(self):
+        if self.scheduled_time:
+            now = datetime.datetime.now()
+            time_left = self.scheduled_time - now
+            total_seconds = time_left.total_seconds()
+            
+            if total_seconds <= 0:
+                self.countdown_timer.stop()
+                self.countdown_label.hide()
+                self.cancel_button.hide()
+                # Get the parent window to start the scan
+                parent = self
+                while parent.parent():
+                    parent = parent.parent()
+                    if isinstance(parent, App):
+                        # Start the scan directly since we're already in the UI thread
+                        parent.launch_scanner()
+                        break
+                self.schedule_switch.setChecked(False)
+                return
+                
+            hours = int(total_seconds // 3600)
+            minutes = int((total_seconds % 3600) // 60)
+            seconds = int(total_seconds % 60)
+            self.countdown_label.setText(f"Starting in: {hours:02d}:{minutes:02d}:{seconds:02d}")
+
+    def cancel_schedule(self):
+        self.scheduled_time = None
+        self.time_button.setText("Set time")
+        self.countdown_timer.stop()
+        self.countdown_label.hide()
+        self.cancel_button.hide()
+        self.schedule_switch.setChecked(False)
 
     def get_scheduled_time(self):
         if self.schedule_switch.isChecked() and self.scheduled_time:
