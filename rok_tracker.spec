@@ -1,8 +1,5 @@
-import customtkinter as ctk
-
-ctk.__path__[0].replace("\\", "/")
-
-added_files = [(ctk.__path__[0].replace("\\", "/"), "customtkinter/")]
+import sys
+from PyInstaller.utils.hooks import collect_data_files
 
 alliance_console_a = Analysis(
     ["alliance_scanner_console.py"],
@@ -42,8 +39,8 @@ alliance_ui_a = Analysis(
     ["alliance_scanner_ui.py"],
     pathex=[],
     binaries=[],
-    datas=added_files,
-    hiddenimports=[],
+    datas=[],
+    hiddenimports=["PyQt6"],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -110,8 +107,8 @@ honor_ui_a = Analysis(
     ["honor_scanner_ui.py"],
     pathex=[],
     binaries=[],
-    datas=added_files,
-    hiddenimports=[],
+    datas=[],
+    hiddenimports=["PyQt6"],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -178,8 +175,8 @@ kingdom_ui_a = Analysis(
     ["kingdom_scanner_ui.py"],
     pathex=[],
     binaries=[],
-    datas=added_files,
-    hiddenimports=[],
+    datas=[],
+    hiddenimports=["PyQt6"],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -246,8 +243,8 @@ seed_ui_a = Analysis(
     ["seed_scanner_ui.py"],
     pathex=[],
     binaries=[],
-    datas=added_files,
-    hiddenimports=[],
+    datas=[],
+    hiddenimports=["PyQt6"],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
