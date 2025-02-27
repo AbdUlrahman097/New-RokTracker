@@ -686,7 +686,7 @@ class App(QMainWindow):
             QMessageBox.critical(self, "Invalid Config", str(e))
             self.close()
 
-        self.setWindowTitle("Kingdom Scanner by Cyrexxis")
+        self.setWindowTitle("Kingdom Scanner")
         self.setGeometry(100, 100, 900, 650)  # Reduced window size
 
         central_widget = QWidget()
