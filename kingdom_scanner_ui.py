@@ -27,7 +27,7 @@ from PyQt6.QtWidgets import (
     QFrame, QMessageBox, QProgressBar, QTabWidget,
     QCalendarWidget, QTimeEdit, QDialog, QGridLayout,
     QComboBox, QGroupBox, QSpacerItem, QSizePolicy,
-    QSystemTrayIcon
+    QSystemTrayIcon, QListWidget, QSpinBox
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QDateTime, QTime, QTimer, QSize
 from PyQt6.QtGui import QIcon
@@ -48,6 +48,9 @@ from roktracker.utils.exception_handling import GuiExceptionHandler
 from roktracker.utils.validator import validate_installation, sanitize_scanname
 from threading import Thread
 from typing import Dict, List, Any
+
+from roktracker.utils.database import HistoricalDatabase
+from roktracker.utils.analytics import KingdomAnalytics
 
 logger = logging.getLogger(__name__)
 ex_handler = GuiExceptionHandler(logger)
@@ -653,6 +656,311 @@ class LastGovernorInfo(QFrame):
             else:
                 self.additional_stats.set_var(key, value)
 
+class AnalyticsTab(QWidget):
+    def __init__(self, analytics: KingdomAnalytics):
+        super().__init__()
+        self.analytics = analytics
+        
+        # Main layout
+        layout = QVBoxLayout()
+        self.setLayout(layout)
+        
+        # Create tab widget for different analysis types
+        analysis_tabs = QTabWidget()
+        
+        # Kingdom Overview Tab
+        kingdom_tab = QWidget()
+        kingdom_layout = QVBoxLayout()
+        kingdom_tab.setLayout(kingdom_layout)
+        
+        # Kingdom Overview Tab (existing functionality)
+        summary_group = QGroupBox("Kingdom Summary")
+        summary_layout = QGridLayout()
+        summary_group.setLayout(summary_layout)
+        
+        self.summary_labels = {}
+        summary_metrics = [
+            ('Active Governors:', 'active_governors'),
+            ('Total Alliances:', 'total_alliances'),
+            ('Average Power:', 'avg_power'),
+            ('Power Change:', 'power_change'),
+            ('Average Kill Points:', 'avg_killpoints'),
+            ('KP Change:', 'kp_change'),
+            ('Total T4/T5 Kills:', 'total_t4t5')
+        ]
+        
+        for i, (label_text, key) in enumerate(summary_metrics):
+            label = QLabel(label_text)
+            value = QLabel()
+            value.setStyleSheet("font-weight: bold;")
+            summary_layout.addWidget(label, i // 2, (i % 2) * 2)
+            summary_layout.addWidget(value, i // 2, (i % 2) * 2 + 1)
+            self.summary_labels[key] = value
+            
+        kingdom_layout.addWidget(summary_group)
+        
+        # Kingdom charts
+        charts_tabs = QTabWidget()
+        
+        # Power trend tab
+        power_tab = QWidget()
+        power_layout = QVBoxLayout()
+        power_tab.setLayout(power_layout)
+        self.power_canvas = self.analytics.create_power_trend_plot()
+        power_layout.addWidget(self.power_canvas)
+        charts_tabs.addTab(power_tab, "Power Trends")
+        
+        # Kill points trend tab
+        kp_tab = QWidget()
+        kp_layout = QVBoxLayout()
+        kp_tab.setLayout(kp_layout)
+        self.kp_canvas = self.analytics.create_killpoints_trend_plot()
+        kp_layout.addWidget(self.kp_canvas)
+        charts_tabs.addTab(kp_tab, "Kill Points Trends")
+        
+        # T4/T5 kills trend tab
+        kills_tab = QWidget()
+        kills_layout = QVBoxLayout()
+        kills_tab.setLayout(kills_layout)
+        self.kills_canvas = self.analytics.create_t4t5_kills_trend_plot()
+        kills_layout.addWidget(self.kills_canvas)
+        charts_tabs.addTab(kills_tab, "T4/T5 Kills Trend")
+        
+        # Alliance distribution tab
+        alliance_tab = QWidget()
+        alliance_layout = QVBoxLayout()
+        alliance_tab.setLayout(alliance_layout)
+        self.alliance_canvas = self.analytics.create_alliance_power_distribution()
+        alliance_layout.addWidget(self.alliance_canvas)
+        charts_tabs.addTab(alliance_tab, "Alliance Power")
+        
+        kingdom_layout.addWidget(charts_tabs)
+        analysis_tabs.addTab(kingdom_tab, "Kingdom Overview")
+        
+        # Governor Comparison Tab
+        comparison_tab = QWidget()
+        self.comparison_layout = QVBoxLayout()
+        comparison_tab.setLayout(self.comparison_layout)
+        
+        # Governor selection
+        selection_group = QGroupBox("Select Governors to Compare")
+        selection_layout = QVBoxLayout()
+        selection_group.setLayout(selection_layout)
+        
+        # Add governor ID input
+        gov_input_layout = QHBoxLayout()
+        self.gov_input = QLineEdit()
+        self.gov_input.setPlaceholderText("Enter Governor ID")
+        add_gov_btn = QPushButton("Add")
+        add_gov_btn.clicked.connect(self.add_governor_to_comparison)
+        gov_input_layout.addWidget(self.gov_input)
+        gov_input_layout.addWidget(add_gov_btn)
+        selection_layout.addLayout(gov_input_layout)
+        
+        # List of added governors
+        self.gov_list = QListWidget()
+        selection_layout.addWidget(self.gov_list)
+        
+        # Control buttons
+        control_layout = QHBoxLayout()
+        remove_gov_btn = QPushButton("Remove Selected")
+        remove_gov_btn.clicked.connect(self.remove_governor_from_comparison)
+        clear_gov_btn = QPushButton("Clear All")
+        clear_gov_btn.clicked.connect(self.clear_comparison_list)
+        compare_btn = QPushButton("Compare")
+        compare_btn.clicked.connect(self.update_comparison)
+        control_layout.addWidget(remove_gov_btn)
+        control_layout.addWidget(clear_gov_btn)
+        control_layout.addWidget(compare_btn)
+        selection_layout.addLayout(control_layout)
+        
+        self.comparison_layout.addWidget(selection_group)
+        self.comparison_result_label = QLabel("Add governors and click Compare to see comparison")
+        self.comparison_layout.addWidget(self.comparison_result_label)
+        
+        analysis_tabs.addTab(comparison_tab, "Governor Comparison")
+        
+        # Predictive Analysis Tab
+        prediction_tab = QWidget()
+        self.prediction_layout = QVBoxLayout()
+        prediction_tab.setLayout(self.prediction_layout)
+        
+        # Governor selection for prediction
+        pred_selection_group = QGroupBox("Governor Selection")
+        pred_selection_layout = QHBoxLayout()
+        pred_selection_group.setLayout(pred_selection_layout)
+        
+        self.pred_gov_input = QLineEdit()
+        self.pred_gov_input.setPlaceholderText("Enter Governor ID")
+        self.days_spinbox = QSpinBox()
+        self.days_spinbox.setRange(7, 90)
+        self.days_spinbox.setValue(30)
+        self.days_spinbox.setPrefix("Predict ")
+        self.days_spinbox.setSuffix(" days")
+        predict_btn = QPushButton("Generate Prediction")
+        predict_btn.clicked.connect(self.update_prediction)
+        
+        pred_selection_layout.addWidget(self.pred_gov_input)
+        pred_selection_layout.addWidget(self.days_spinbox)
+        pred_selection_layout.addWidget(predict_btn)
+        
+        self.prediction_layout.addWidget(pred_selection_group)
+        self.prediction_layout.addWidget(QLabel("Enter a governor ID and click Generate Prediction"))
+        
+        analysis_tabs.addTab(prediction_tab, "Predictive Analysis")
+        
+        layout.addWidget(analysis_tabs)
+        
+        # Refresh button at bottom
+        refresh_btn = QPushButton("Refresh Analytics")
+        refresh_btn.clicked.connect(self.refresh_analytics)
+        layout.addWidget(refresh_btn)
+        
+        self.refresh_analytics()
+
+    def clear_comparison_list(self):
+        self.gov_list.clear()
+        if hasattr(self, 'comparison_canvas'):
+            self.comparison_canvas.setParent(None)
+            delattr(self, 'comparison_canvas')
+
+    def add_governor_to_comparison(self):
+        gov_id = self.gov_input.text().strip()
+        # Create a list of existing IDs
+        existing_ids = []
+        for i in range(self.gov_list.count()):
+            item = self.gov_list.item(i)
+            if item is not None:
+                existing_ids.append(item.text())
+        
+        if gov_id and gov_id not in existing_ids:
+            self.gov_list.addItem(gov_id)
+            self.gov_input.clear()
+
+    def remove_governor_from_comparison(self):
+        current_item = self.gov_list.currentItem()
+        if current_item is not None:
+            self.gov_list.takeItem(self.gov_list.row(current_item))
+
+    def update_comparison(self):
+        if self.gov_list.count() < 2:
+            QMessageBox.warning(self, "Not Enough Governors", 
+                              "Please add at least two governors to compare.")
+            return
+        
+        # Safely get governor IDs
+        governor_ids = []
+        for i in range(self.gov_list.count()):
+            item = self.gov_list.item(i)
+            if item is not None:
+                governor_ids.append(item.text())
+        
+        if not governor_ids:
+            return
+        
+        # Create comparison plot
+        canvas = self.analytics.create_governor_comparison_plot(governor_ids)
+        
+        # Get comparison data
+        df = self.analytics.compare_governors(governor_ids)
+        
+        # Create results widget to show table of comparisons
+        results_group = QGroupBox("Comparison Results")
+        results_layout = QGridLayout()
+        results_group.setLayout(results_layout)
+        
+        # Add headers
+        headers = ['Name', 'Alliance', 'Current Power', 'Daily Growth', 'Predicted Growth']
+        for i, header in enumerate(headers):
+            label = QLabel(header)
+            label.setStyleSheet("font-weight: bold;")
+            results_layout.addWidget(label, 0, i)
+        
+        # Add data rows
+        for idx, (_, gov_data) in enumerate(df.iterrows(), start=1):
+            results_layout.addWidget(QLabel(str(gov_data.get('name', ''))), idx, 0)
+            results_layout.addWidget(QLabel(str(gov_data.get('alliance', '') or '')), idx, 1)
+            results_layout.addWidget(QLabel(f"{gov_data.get('current_power', 0)/1_000_000:.1f}M"), idx, 2)
+            results_layout.addWidget(QLabel(f"{gov_data.get('daily_power_growth', 0)/1_000_000:+.2f}M/day"), idx, 3)
+            
+            predicted_growth = gov_data.get('predicted_power_growth')
+            power_r2 = gov_data.get('power_r2')
+            if predicted_growth is not None and power_r2 is not None:
+                predicted = f"{predicted_growth/1_000_000:+.2f}M/day (R²={power_r2:.2f})"
+            else:
+                predicted = "Insufficient data"
+            results_layout.addWidget(QLabel(predicted), idx, 4)
+        
+        # Clear previous results
+        while self.comparison_layout.count() > 1:
+            item = self.comparison_layout.takeAt(1)
+            widget = item.widget() if item is not None else None
+            if widget is not None:
+                widget.setParent(None)
+                widget.deleteLater()
+        
+        # Add new results
+        self.comparison_canvas = canvas
+        self.comparison_layout.addWidget(self.comparison_canvas)
+        self.comparison_layout.addWidget(results_group)
+
+    def update_prediction(self):
+        gov_id = self.pred_gov_input.text().strip()
+        if not gov_id:
+            QMessageBox.warning(self, "No Governor Selected", 
+                              "Please enter a governor ID first.")
+            return
+            
+        days = self.days_spinbox.value()
+        
+        # Create prediction plot
+        canvas = self.analytics.create_governor_prediction_plot(gov_id, days)
+        
+        if canvas is None:
+            QMessageBox.warning(self, "Insufficient Data", 
+                              "Need at least 3 data points to generate predictions.")
+            return
+            
+        # Clear previous results if they exist
+        while self.prediction_layout.count() > 2:
+            item = self.prediction_layout.takeAt(2)
+            widget = item.widget() if item is not None else None
+            if widget is not None:
+                widget.setParent(None)
+                widget.deleteLater()
+        
+        # Add new prediction plot
+        self.prediction_canvas = canvas
+        self.prediction_layout.addWidget(self.prediction_canvas)
+
+    def clear_layout(self, layout):
+        """Safely clear all widgets from a layout"""
+        if layout is not None:
+            while layout.count():
+                item = layout.takeAt(0)
+                widget = item.widget() if item is not None else None
+                if widget is not None:
+                    widget.setParent(None)
+                    widget.deleteLater()
+                elif item.layout() is not None:
+                    self.clear_layout(item.layout())
+
+    def refresh_analytics(self):
+        summary = self.analytics.get_kingdom_summary()
+        if summary:
+            for key, label in self.summary_labels.items():
+                label.setText(str(summary.get(key, '')))
+        
+        # Refresh all charts
+        if hasattr(self, 'power_canvas'):
+            self.power_canvas.draw()
+        if hasattr(self, 'kp_canvas'):
+            self.kp_canvas.draw()
+        if hasattr(self, 'kills_canvas'):
+            self.kills_canvas.draw()
+        if hasattr(self, 'alliance_canvas'):
+            self.alliance_canvas.draw()
+
 class App(QMainWindow):
     # Add signals for thread-safe UI updates
     update_ui_signal = pyqtSignal(dict)
@@ -781,6 +1089,30 @@ class App(QMainWindow):
         main_layout.setStretch(0, 1)  # Left panel
         main_layout.setStretch(1, 2)  # Center panel
         main_layout.setStretch(2, 1)  # Right panel
+
+        # Initialize database and analytics
+        self.db = HistoricalDatabase()
+        self.analytics = KingdomAnalytics(self.db)
+        
+        # Create tab widget
+        tabs = QTabWidget()
+        
+        # Add existing scanner UI to first tab
+        scanner_widget = QWidget()
+        scanner_layout = QHBoxLayout()
+        scanner_widget.setLayout(scanner_layout)
+        
+        scanner_layout.addWidget(left_panel)
+        scanner_layout.addWidget(center_panel)
+        scanner_layout.addWidget(right_panel)
+        
+        tabs.addTab(scanner_widget, "Scanner")
+        
+        # Add analytics tab
+        analytics_tab = AnalyticsTab(self.analytics)
+        tabs.addTab(analytics_tab, "Analytics")
+        
+        self.setCentralWidget(tabs)
 
         self.load_preferences()
 
@@ -972,6 +1304,9 @@ class App(QMainWindow):
                 "total": extra_data.target_governor
             }
         })
+
+        # Add saving to database
+        self.db.save_scan_data(self.kingdom_scanner.run_id, gov_data.name, [gov_data])
 
     def _update_ui(self, data):
         # Actual UI updates happen in main thread
