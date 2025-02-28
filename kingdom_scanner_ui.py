@@ -1,4 +1,5 @@
 import logging
+from pathlib import Path
 from dummy_root import get_app_root
 from roktracker.utils.check_python import check_py_version
 from roktracker.utils.exceptions import AdbError, ConfigError
@@ -51,6 +52,7 @@ from typing import Dict, List, Any
 
 from roktracker.utils.database import HistoricalDatabase
 from roktracker.utils.analytics import KingdomAnalytics
+from roktracker.utils.analytics_export import AnalyticsExporter
 
 logger = logging.getLogger(__name__)
 ex_handler = GuiExceptionHandler(logger)
@@ -110,8 +112,12 @@ class HorizontalCheckboxFrame(QFrame):
             layout.addWidget(label, row, col)
             
             checkbox = QCheckBox()
-            if value["default"]:
-                checkbox.setChecked(True)
+            if isinstance(value["default"], bool):
+                # Handle boolean default value
+                checkbox.setChecked(value["default"])
+            elif callable(value["default"]):
+                # Handle function default value
+                checkbox.setChecked(value["default"]())
             layout.addWidget(checkbox, row + 1, col)
             
             self.checkboxes.append({value["name"]: checkbox})
@@ -657,13 +663,29 @@ class LastGovernorInfo(QFrame):
                 self.additional_stats.set_var(key, value)
 
 class AnalyticsTab(QWidget):
-    def __init__(self, analytics: KingdomAnalytics):
+    def __init__(self, db: HistoricalDatabase):
         super().__init__()
-        self.analytics = analytics
+        self.db = db
+        self.analytics = KingdomAnalytics(self.db)
+        self.exporter = AnalyticsExporter(self.db, self.analytics)
         
         # Main layout
-        layout = QVBoxLayout()
-        self.setLayout(layout)
+        main_layout = QVBoxLayout()
+        self.setLayout(main_layout)
+        
+        # Top buttons layout with export options
+        button_layout = QHBoxLayout()
+        
+        # Export buttons
+        export_kingdom_btn = QPushButton("Export Kingdom Report")
+        export_kingdom_btn.clicked.connect(self.export_kingdom_report)
+        button_layout.addWidget(export_kingdom_btn)
+        
+        export_governor_btn = QPushButton("Export Governor Report")
+        export_governor_btn.clicked.connect(self.export_governor_report)
+        button_layout.addWidget(export_governor_btn)
+        
+        main_layout.addLayout(button_layout)
         
         # Create tab widget for different analysis types
         analysis_tabs = QTabWidget()
@@ -707,7 +729,8 @@ class AnalyticsTab(QWidget):
         power_layout = QVBoxLayout()
         power_tab.setLayout(power_layout)
         self.power_canvas = self.analytics.create_power_trend_plot()
-        power_layout.addWidget(self.power_canvas)
+        if self.power_canvas:
+            power_layout.addWidget(self.power_canvas)
         charts_tabs.addTab(power_tab, "Power Trends")
         
         # Kill points trend tab
@@ -715,7 +738,8 @@ class AnalyticsTab(QWidget):
         kp_layout = QVBoxLayout()
         kp_tab.setLayout(kp_layout)
         self.kp_canvas = self.analytics.create_killpoints_trend_plot()
-        kp_layout.addWidget(self.kp_canvas)
+        if self.kp_canvas:
+            kp_layout.addWidget(self.kp_canvas)
         charts_tabs.addTab(kp_tab, "Kill Points Trends")
         
         # T4/T5 kills trend tab
@@ -723,7 +747,8 @@ class AnalyticsTab(QWidget):
         kills_layout = QVBoxLayout()
         kills_tab.setLayout(kills_layout)
         self.kills_canvas = self.analytics.create_t4t5_kills_trend_plot()
-        kills_layout.addWidget(self.kills_canvas)
+        if self.kills_canvas:
+            kills_layout.addWidget(self.kills_canvas)
         charts_tabs.addTab(kills_tab, "T4/T5 Kills Trend")
         
         # Alliance distribution tab
@@ -731,7 +756,8 @@ class AnalyticsTab(QWidget):
         alliance_layout = QVBoxLayout()
         alliance_tab.setLayout(alliance_layout)
         self.alliance_canvas = self.analytics.create_alliance_power_distribution()
-        alliance_layout.addWidget(self.alliance_canvas)
+        if self.alliance_canvas:
+            alliance_layout.addWidget(self.alliance_canvas)
         charts_tabs.addTab(alliance_tab, "Alliance Power")
         
         kingdom_layout.addWidget(charts_tabs)
@@ -774,10 +800,11 @@ class AnalyticsTab(QWidget):
         control_layout.addWidget(compare_btn)
         selection_layout.addLayout(control_layout)
         
+        selection_group.setLayout(selection_layout)
         self.comparison_layout.addWidget(selection_group)
+        
         self.comparison_result_label = QLabel("Add governors and click Compare to see comparison")
         self.comparison_layout.addWidget(self.comparison_result_label)
-        
         analysis_tabs.addTab(comparison_tab, "Governor Comparison")
         
         # Predictive Analysis Tab
@@ -806,16 +833,17 @@ class AnalyticsTab(QWidget):
         
         self.prediction_layout.addWidget(pred_selection_group)
         self.prediction_layout.addWidget(QLabel("Enter a governor ID and click Generate Prediction"))
-        
         analysis_tabs.addTab(prediction_tab, "Predictive Analysis")
         
-        layout.addWidget(analysis_tabs)
+        # Add the analysis tabs to the main layout
+        main_layout.addWidget(analysis_tabs)
         
         # Refresh button at bottom
         refresh_btn = QPushButton("Refresh Analytics")
         refresh_btn.clicked.connect(self.refresh_analytics)
-        layout.addWidget(refresh_btn)
+        main_layout.addWidget(refresh_btn)
         
+        # Initialize analytics
         self.refresh_analytics()
 
     def clear_comparison_list(self):
@@ -961,6 +989,36 @@ class AnalyticsTab(QWidget):
         if hasattr(self, 'alliance_canvas'):
             self.alliance_canvas.draw()
 
+    def export_kingdom_report(self):
+        try:
+            output_dir = Path(get_app_root()) / "reports"
+            output_dir.mkdir(exist_ok=True)
+            filename = self.exporter.export_kingdom_report(output_dir)
+            QMessageBox.information(self, "Success", f"Kingdom report exported to:\n{filename}")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to export kingdom report:\n{str(e)}")
+    
+    def export_governor_report(self):
+        # Get selected governors from the comparison tab
+        governor_ids = []
+        for i in range(self.gov_list.count()):
+            item = self.gov_list.item(i)
+            if item is not None:
+                governor_ids.append(item.text())
+                
+        if not governor_ids:
+            QMessageBox.warning(self, "No Governors Selected", 
+                              "Please add governors to the comparison list first")
+            return
+            
+        try:
+            output_dir = Path(get_app_root()) / "reports"
+            output_dir.mkdir(exist_ok=True)
+            filename = self.exporter.export_governor_report(governor_ids, output_dir)
+            QMessageBox.information(self, "Success", f"Governor report exported to:\n{filename}")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to export governor report:\n{str(e)}")
+
 class App(QMainWindow):
     # Add signals for thread-safe UI updates
     update_ui_signal = pyqtSignal(dict)
@@ -997,10 +1055,18 @@ class App(QMainWindow):
         self.setWindowTitle("Kingdom Scanner")
         self.setGeometry(100, 100, 900, 650)  # Reduced window size
 
-        central_widget = QWidget()
-        self.setCentralWidget(central_widget)
-        main_layout = QHBoxLayout()
-        central_widget.setLayout(main_layout)
+        # Initialize database and analytics
+        self.db = HistoricalDatabase()
+        self.analytics = KingdomAnalytics(self.db)
+
+        # Create main tab widget
+        tabs = QTabWidget()
+        self.setCentralWidget(tabs)
+
+        # Create Scanner tab
+        scanner_widget = QWidget()
+        scanner_layout = QHBoxLayout()
+        scanner_widget.setLayout(scanner_layout)
 
         # Left panel: Scan options with controls
         left_panel = QWidget()
@@ -1045,7 +1111,6 @@ class App(QMainWindow):
         controls_layout.addWidget(self.end_scan_button)
         
         left_layout.addWidget(controls_group)
-        main_layout.addWidget(left_panel)
 
         # Center panel: Basic options
         center_panel = QWidget()
@@ -1054,7 +1119,6 @@ class App(QMainWindow):
         
         self.options_frame = BasicOptionsFrame(self.config)
         center_layout.addWidget(self.options_frame)
-        main_layout.addWidget(center_panel)
 
         # Right panel: Governor info with status and current state
         right_panel = QWidget()
@@ -1083,39 +1147,21 @@ class App(QMainWindow):
             ],
         )
         right_layout.addWidget(self.last_gov_frame)
-        main_layout.addWidget(right_panel)
-        
-        # Set stretch factors for panels
-        main_layout.setStretch(0, 1)  # Left panel
-        main_layout.setStretch(1, 2)  # Center panel
-        main_layout.setStretch(2, 1)  # Right panel
 
-        # Initialize database and analytics
-        self.db = HistoricalDatabase()
-        self.analytics = KingdomAnalytics(self.db)
-        
-        # Create tab widget
-        tabs = QTabWidget()
-        
-        # Add existing scanner UI to first tab
-        scanner_widget = QWidget()
-        scanner_layout = QHBoxLayout()
-        scanner_widget.setLayout(scanner_layout)
-        
-        scanner_layout.addWidget(left_panel)
-        scanner_layout.addWidget(center_panel)
-        scanner_layout.addWidget(right_panel)
-        
+        # Add panels to scanner layout with stretch factors
+        scanner_layout.addWidget(left_panel, 1)
+        scanner_layout.addWidget(center_panel, 2)
+        scanner_layout.addWidget(right_panel, 1)
+
+        # Add scanner widget to tabs
         tabs.addTab(scanner_widget, "Scanner")
         
         # Add analytics tab
-        analytics_tab = AnalyticsTab(self.analytics)
+        analytics_tab = AnalyticsTab(self.db)
         tabs.addTab(analytics_tab, "Analytics")
-        
-        self.setCentralWidget(tabs)
 
         self.load_preferences()
-
+        
     def ask_confirm(self, msg) -> bool:
         result = QMessageBox.question(self, "No Governor found", msg)
         return result == QMessageBox.StandardButton.Yes
