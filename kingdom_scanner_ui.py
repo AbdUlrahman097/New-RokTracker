@@ -1495,6 +1495,15 @@ class App(QMainWindow):
                 options["formats"],
             )
 
+            # Use signal to update UI after scan completion
+            self.update_ui_signal.emit({
+                "success": True,
+                "message": "The scan has been completed successfully.",
+                "enable_start": True,
+                "disable_end": True
+            })
+            logger.info(f"Scan completed at {datetime.datetime.now()}")
+
         except AdbError as error:
             logger.error(f"ADB connection error at {datetime.datetime.now()}: {error}")
             error_msg = (
@@ -1522,7 +1531,9 @@ class App(QMainWindow):
             ).format(name=options.get("name", ""), port=options["port"], error=str(error))
             self.update_ui_signal.emit({
                 "error": "ADB Connection Error",
-                "message": error_msg
+                "message": error_msg,
+                "enable_start": True,
+                "disable_end": True
             })
             self.state_callback("Not started - ADB Error")
 
@@ -1552,7 +1563,9 @@ class App(QMainWindow):
             ).format(error=str(error))
             self.update_ui_signal.emit({
                 "error": "Configuration Error",
-                "message": error_msg
+                "message": error_msg,
+                "enable_start": True,
+                "disable_end": True
             })
             self.state_callback("Not started - Config Error")
 
@@ -1570,26 +1583,17 @@ class App(QMainWindow):
             ).format(error=str(error))
             self.update_ui_signal.emit({
                 "error": "Unexpected Error",
-                "message": error_msg
+                "message": error_msg,
+                "enable_start": True,
+                "disable_end": True
             })
             self.state_callback("Not started - Fatal Error")
-        else:
-            logger.info(f"Scan completed at {datetime.datetime.now()}")
-            self.update_ui_signal.emit({
-                "success": True,
-                "message": "The scan has been completed successfully."
-            })
-            self.show_notification(
-                "Scan Complete",
-                "The scan has been completed successfully.",
-                QSystemTrayIcon.MessageIcon.Information
-            )
         finally:
-            self.end_scan_button.setEnabled(False)
-            self.end_scan_button.setText("End scan") 
-            self.start_scan_button.setEnabled(True)
             if hasattr(self, 'kingdom_scanner'):
-                self.kingdom_scanner.adb_client.kill_adb()  # Ensure ADB connection is cleaned up
+                try:
+                    self.kingdom_scanner.adb_client.kill_adb()  # Ensure ADB connection is cleaned up
+                except:
+                    pass
 
     def end_scan(self):
         self.kingdom_scanner.end_scan()
@@ -1666,6 +1670,14 @@ class App(QMainWindow):
                     QSystemTrayIcon.MessageIcon.Information,
                     3000
                 )
+
+        # Handle button states
+        if "enable_start" in data:
+            self.start_scan_button.setEnabled(True)
+            
+        if "disable_end" in data:
+            self.end_scan_button.setEnabled(False)
+            self.end_scan_button.setText("End scan")
 
         if "error" in data:
             self.show_notification(
