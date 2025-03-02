@@ -790,93 +790,260 @@ class AnalyticsTab(QWidget):
         
         analysis_tabs.addTab(kingdom_tab, "Kingdom Overview")
         
-        # Governor Comparison Tab
+        # Governor Comparison Tab - Enhanced layout
         comparison_tab = QWidget()
         self.comparison_layout = QVBoxLayout()
         comparison_tab.setLayout(self.comparison_layout)
         
-        # Governor selection in a group box
-        selection_group = QGroupBox("Select Governors to Compare")
+        # Governor selection in an enhanced group box
+        selection_group = QGroupBox("Governor Selection")
+        selection_group.setStyleSheet("""
+            QGroupBox {
+                font-weight: bold;
+                border: 1px solid #cccccc;
+                border-radius: 6px;
+                margin-top: 12px;
+                padding-top: 10px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px;
+            }
+        """)
         selection_layout = QVBoxLayout()
         selection_group.setLayout(selection_layout)
         
-        # Add governor ID input with better styling
-        gov_input_layout = QHBoxLayout()
+        # Input area with horizontal layout and better spacing
+        input_area = QHBoxLayout()
+        input_area.setSpacing(10)
+        
         self.gov_input = QLineEdit()
         self.gov_input.setPlaceholderText("Enter Governor ID")
-        self.gov_input.setMinimumHeight(30)
-        add_gov_btn = QPushButton("Add")
-        add_gov_btn.setMinimumHeight(30)
-        add_gov_btn.clicked.connect(self.add_governor_to_comparison)
-        gov_input_layout.addWidget(self.gov_input)
-        gov_input_layout.addWidget(add_gov_btn)
-        selection_layout.addLayout(gov_input_layout)
+        self.gov_input.setMinimumHeight(35)
+        self.gov_input.setStyleSheet("""
+            QLineEdit {
+                padding: 5px 10px;
+                border: 1px solid #cccccc;
+                border-radius: 4px;
+            }
+            QLineEdit:focus {
+                border: 1px solid #2060c0;
+            }
+        """)
         
-        # List of added governors
+        add_gov_btn = QPushButton("Add Governor")
+        add_gov_btn.setMinimumHeight(35)
+        add_gov_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #2060c0;
+                color: white;
+                border-radius: 4px;
+                padding: 6px 15px;
+            }
+            QPushButton:hover {
+                background-color: #1a4b99;
+            }
+            QPushButton:pressed {
+                background-color: #154282;
+            }
+        """)
+        add_gov_btn.clicked.connect(self.add_governor_to_comparison)
+        
+        input_area.addWidget(self.gov_input, 3)
+        input_area.addWidget(add_gov_btn, 1)
+        selection_layout.addLayout(input_area)
+        
+        # List of added governors with better styling
         self.gov_list = QListWidget()
         self.gov_list.setMinimumHeight(150)
+        self.gov_list.setStyleSheet("""
+            QListWidget {
+                border: 1px solid #cccccc;
+                border-radius: 4px;
+                background-color: white;
+                padding: 5px;
+            }
+            QListWidget::item {
+                padding: 5px;
+                border-bottom: 1px solid #eeeeee;
+            }
+            QListWidget::item:selected {
+                background-color: #e6f0ff;
+                color: #2060c0;
+            }
+        """)
         selection_layout.addWidget(self.gov_list)
         
-        # Control buttons with better styling
-        control_layout = QHBoxLayout()
+        # Control buttons with improved layout and styling
+        button_layout = QHBoxLayout()
+        button_layout.setSpacing(10)
+        
+        control_button_style = """
+            QPushButton {
+                background-color: #f5f5f5;
+                border: 1px solid #cccccc;
+                border-radius: 4px;
+                padding: 6px 15px;
+                color: #333333;
+            }
+            QPushButton:hover {
+                background-color: #e6e6e6;
+                border-color: #999999;
+            }
+            QPushButton:pressed {
+                background-color: #d9d9d9;
+            }
+        """
+        
         remove_gov_btn = QPushButton("Remove Selected")
-        remove_gov_btn.setMinimumHeight(30)
+        remove_gov_btn.setMinimumHeight(35)
+        remove_gov_btn.setStyleSheet(control_button_style)
         remove_gov_btn.clicked.connect(self.remove_governor_from_comparison)
+        
         clear_gov_btn = QPushButton("Clear All")
-        clear_gov_btn.setMinimumHeight(30)
+        clear_gov_btn.setMinimumHeight(35)
+        clear_gov_btn.setStyleSheet(control_button_style)
         clear_gov_btn.clicked.connect(self.clear_comparison_list)
-        compare_btn = QPushButton("Compare")
-        compare_btn.setMinimumHeight(30)
+        
+        compare_btn = QPushButton("Compare Governors")
+        compare_btn.setMinimumHeight(35)
+        compare_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #2060c0;
+                color: white;
+                border-radius: 4px;
+                padding: 6px 15px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #1a4b99;
+            }
+            QPushButton:pressed {
+                background-color: #154282;
+            }
+        """)
         compare_btn.clicked.connect(self.update_comparison)
         
-        control_layout.addWidget(remove_gov_btn)
-        control_layout.addWidget(clear_gov_btn)
-        control_layout.addWidget(compare_btn)
-        selection_layout.addLayout(control_layout)
+        button_layout.addWidget(remove_gov_btn)
+        button_layout.addWidget(clear_gov_btn)
+        button_layout.addWidget(compare_btn)
+        selection_layout.addLayout(button_layout)
         
-        selection_group.setLayout(selection_layout)
         self.comparison_layout.addWidget(selection_group)
         
+        # Results area
         self.comparison_result_label = QLabel("Add governors and click Compare to see comparison")
         self.comparison_result_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.comparison_result_label.setStyleSheet("color: #666666; padding: 15px;")
         self.comparison_layout.addWidget(self.comparison_result_label)
+        
         analysis_tabs.addTab(comparison_tab, "Governor Comparison")
 
-        # Predictive Analysis Tab
+        # Predictive Analysis Tab - Enhanced layout
         prediction_tab = QWidget()
         self.prediction_layout = QVBoxLayout()
         prediction_tab.setLayout(self.prediction_layout)
         
-        # Governor selection for prediction
-        pred_selection_group = QGroupBox("Governor Selection")
-        pred_selection_layout = QHBoxLayout()
-        pred_selection_group.setLayout(pred_selection_layout)
+        # Enhanced prediction input group
+        pred_group = QGroupBox("Prediction Settings")
+        pred_group.setStyleSheet("""
+            QGroupBox {
+                font-weight: bold;
+                border: 1px solid #cccccc;
+                border-radius: 6px;
+                margin-top: 12px;
+                padding-top: 10px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px;
+            }
+        """)
+        pred_layout = QVBoxLayout()
+        pred_group.setLayout(pred_layout)
         
+        # Input area with better organization
+        input_grid = QGridLayout()
+        input_grid.setSpacing(10)
+        
+        # Governor ID input with label
+        gov_id_label = QLabel("Governor ID:")
+        gov_id_label.setStyleSheet("font-weight: normal;")
         self.pred_gov_input = QLineEdit()
         self.pred_gov_input.setPlaceholderText("Enter Governor ID")
-        self.pred_gov_input.setMinimumHeight(30)
+        self.pred_gov_input.setMinimumHeight(35)
+        self.pred_gov_input.setStyleSheet("""
+            QLineEdit {
+                padding: 5px 10px;
+                border: 1px solid #cccccc;
+                border-radius: 4px;
+            }
+            QLineEdit:focus {
+                border: 1px solid #2060c0;
+            }
+        """)
         
+        # Prediction period with label
+        period_label = QLabel("Prediction Period:")
+        period_label.setStyleSheet("font-weight: normal;")
         self.days_spinbox = QSpinBox()
         self.days_spinbox.setRange(7, 90)
         self.days_spinbox.setValue(30)
         self.days_spinbox.setPrefix("Predict ")
         self.days_spinbox.setSuffix(" days")
-        self.days_spinbox.setMinimumHeight(30)
+        self.days_spinbox.setMinimumHeight(35)
+        self.days_spinbox.setStyleSheet("""
+            QSpinBox {
+                padding: 5px 10px;
+                border: 1px solid #cccccc;
+                border-radius: 4px;
+            }
+            QSpinBox:focus {
+                border: 1px solid #2060c0;
+            }
+        """)
         
+        input_grid.addWidget(gov_id_label, 0, 0)
+        input_grid.addWidget(self.pred_gov_input, 0, 1)
+        input_grid.addWidget(period_label, 1, 0)
+        input_grid.addWidget(self.days_spinbox, 1, 1)
+        
+        pred_layout.addLayout(input_grid)
+        
+        # Generate prediction button
         predict_btn = QPushButton("Generate Prediction")
-        predict_btn.setMinimumHeight(30)
+        predict_btn.setMinimumHeight(35)
+        predict_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #2060c0;
+                color: white;
+                border-radius: 4px;
+                padding: 6px 15px;
+                font-weight: bold;
+                margin-top: 10px;
+            }
+            QPushButton:hover {
+                background-color: #1a4b99;
+            }
+            QPushButton:pressed {
+                background-color: #154282;
+            }
+        """)
         predict_btn.clicked.connect(self.update_prediction)
+        pred_layout.addWidget(predict_btn)
         
-        pred_selection_layout.addWidget(self.pred_gov_input)
-        pred_selection_layout.addWidget(self.days_spinbox)
-        pred_selection_layout.addWidget(predict_btn)
+        self.prediction_layout.addWidget(pred_group)
         
-        self.prediction_layout.addWidget(pred_selection_group)
-        
-        # Add instruction label with better styling
-        instruction_label = QLabel("Enter a governor ID and click Generate Prediction")
+        # Enhanced instruction label
+        instruction_label = QLabel("Enter a governor ID and select prediction period to generate forecast")
         instruction_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        instruction_label.setStyleSheet("color: #666666; padding: 10px;")
+        instruction_label.setStyleSheet("""
+            color: #666666;
+            padding: 15px;
+            font-style: italic;
+        """)
         self.prediction_layout.addWidget(instruction_label)
         
         analysis_tabs.addTab(prediction_tab, "Predictive Analysis")
