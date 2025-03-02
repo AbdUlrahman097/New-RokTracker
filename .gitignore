@@ -622,3 +622,4 @@ scans_kingdom/
 scans_seed/
 deps/tessdata
 deps/*.whl
+historical_data.db
