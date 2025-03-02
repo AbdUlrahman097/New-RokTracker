@@ -6,38 +6,55 @@ from pathlib import Path
 
 class HistoricalDatabase:
     def __init__(self, db_path="historical_data.db"):
-        self.db_path = db_path
+        self.db_path = Path(db_path)
+        # Ensure parent directory exists
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
 
     def _init_db(self):
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS scans (
-                    scan_id TEXT PRIMARY KEY,
-                    scan_date TIMESTAMP,
-                    scan_name TEXT,
-                    total_governors INTEGER
-                )
-            """)
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS governor_data (
-                    scan_id TEXT,
-                    governor_id TEXT,
-                    name TEXT,
-                    power INTEGER,
-                    killpoints INTEGER,
-                    t1_kills INTEGER,
-                    t2_kills INTEGER,
-                    t3_kills INTEGER,
-                    t4_kills INTEGER,
-                    t5_kills INTEGER,
-                    dead INTEGER,
-                    alliance TEXT,
-                    FOREIGN KEY(scan_id) REFERENCES scans(scan_id),
-                    UNIQUE(scan_id, governor_id)
-                )
-            """)
-            conn.commit()
+        """Initialize database with required tables"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                # Enable foreign key support
+                conn.execute("PRAGMA foreign_keys = ON")
+                
+                # Create scans table
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS scans (
+                        scan_id TEXT PRIMARY KEY,
+                        scan_date TIMESTAMP,
+                        scan_name TEXT,
+                        total_governors INTEGER
+                    )
+                """)
+                
+                # Create governor_data table with foreign key
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS governor_data (
+                        scan_id TEXT,
+                        governor_id TEXT,
+                        name TEXT,
+                        power INTEGER,
+                        killpoints INTEGER,
+                        t1_kills INTEGER,
+                        t2_kills INTEGER,
+                        t3_kills INTEGER,
+                        t4_kills INTEGER,
+                        t5_kills INTEGER,
+                        dead INTEGER,
+                        alliance TEXT,
+                        FOREIGN KEY(scan_id) REFERENCES scans(scan_id),
+                        UNIQUE(scan_id, governor_id)
+                    )
+                """)
+                
+                # Create indices for better query performance
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_scan_date ON scans(scan_date)")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_governor_scan ON governor_data(scan_id, governor_id)")
+                
+                conn.commit()
+        except sqlite3.Error as e:
+            raise RuntimeError(f"Failed to initialize database: {str(e)}")
 
     def save_scan_data(self, scan_id, scan_name, governors_data):
         """Save scan data with proper handling of UNIQUE constraint"""

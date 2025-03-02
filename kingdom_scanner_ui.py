@@ -1346,11 +1346,21 @@ class App(QMainWindow):
             self.state_callback("Not started - Fatal Error")
         else:
             logger.info(f"Scan completed at {datetime.datetime.now()}")
-            QMessageBox.information(self, "Scan Complete", "The scan has been completed successfully.")
+            self.update_ui_signal.emit({
+                "success": True,
+                "message": "The scan has been completed successfully."
+            })
+            self.show_notification(
+                "Scan Complete",
+                "The scan has been completed successfully.",
+                QSystemTrayIcon.MessageIcon.Information
+            )
         finally:
             self.end_scan_button.setEnabled(False)
-            self.end_scan_button.setText("End scan")
+            self.end_scan_button.setText("End scan") 
             self.start_scan_button.setEnabled(True)
+            if hasattr(self, 'kingdom_scanner'):
+                self.kingdom_scanner.adb_client.kill_adb()  # Ensure ADB connection is cleaned up
 
     def end_scan(self):
         self.kingdom_scanner.end_scan()

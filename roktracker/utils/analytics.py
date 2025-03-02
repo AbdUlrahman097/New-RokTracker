@@ -93,13 +93,23 @@ class KingdomAnalytics:
         df_trends = self.db.get_kingdom_trends(days=30)
         df_alliances = self.db.get_alliance_statistics()
         
-        if len(df_trends) > 0:
+        if len(df_trends) > 1:  # Need at least 2 data points
             latest = df_trends.iloc[-1]
             first = df_trends.iloc[0]
             
-            power_change = ((latest['avg_power'] - first['avg_power']) / first['avg_power']) * 100
-            kp_change = ((latest['avg_killpoints'] - first['avg_killpoints']) / first['avg_killpoints']) * 100
+            # Calculate power change with protection against division by zero
+            if first['avg_power'] != 0:
+                power_change = ((latest['avg_power'] - first['avg_power']) / first['avg_power']) * 100
+            else:
+                power_change = 100 if latest['avg_power'] > 0 else 0
             
+            # Calculate KP change with protection against division by zero
+            if first['avg_killpoints'] != 0:
+                kp_change = ((latest['avg_killpoints'] - first['avg_killpoints']) / first['avg_killpoints']) * 100
+            else:
+                kp_change = 100 if latest['avg_killpoints'] > 0 else 0
+            
+            # Format with absolute values for display
             return {
                 'active_governors': int(latest['active_governors']),
                 'total_alliances': len(df_alliances),
