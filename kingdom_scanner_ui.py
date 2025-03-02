@@ -673,19 +673,22 @@ class AnalyticsTab(QWidget):
         main_layout = QVBoxLayout()
         self.setLayout(main_layout)
         
-        # Top buttons layout with export options
+        # Top buttons layout with export options in a group box
+        export_group = QGroupBox("Export Options")
         button_layout = QHBoxLayout()
+        export_group.setLayout(button_layout)
         
-        # Export buttons
         export_kingdom_btn = QPushButton("Export Kingdom Report")
         export_kingdom_btn.clicked.connect(self.export_kingdom_report)
+        export_kingdom_btn.setMinimumHeight(30)
         button_layout.addWidget(export_kingdom_btn)
         
         export_governor_btn = QPushButton("Export Governor Report")
         export_governor_btn.clicked.connect(self.export_governor_report)
+        export_governor_btn.setMinimumHeight(30)
         button_layout.addWidget(export_governor_btn)
         
-        main_layout.addLayout(button_layout)
+        main_layout.addWidget(export_group)
         
         # Create tab widget for different analysis types
         analysis_tabs = QTabWidget()
@@ -695,7 +698,11 @@ class AnalyticsTab(QWidget):
         kingdom_layout = QVBoxLayout()
         kingdom_tab.setLayout(kingdom_layout)
         
-        # Kingdom Overview Tab (existing functionality)
+        # Kingdom Overview Tab - Split into two columns
+        kingdom_split = QHBoxLayout()
+        
+        # Left column for summary
+        left_column = QVBoxLayout()
         summary_group = QGroupBox("Kingdom Summary")
         summary_layout = QGridLayout()
         summary_group.setLayout(summary_layout)
@@ -713,23 +720,41 @@ class AnalyticsTab(QWidget):
         
         for i, (label_text, key) in enumerate(summary_metrics):
             label = QLabel(label_text)
+            label.setStyleSheet("font-weight: bold;")
             value = QLabel()
-            value.setStyleSheet("font-weight: bold;")
-            summary_layout.addWidget(label, i // 2, (i % 2) * 2)
-            summary_layout.addWidget(value, i // 2, (i % 2) * 2 + 1)
+            value.setStyleSheet("color: #2060c0;")
+            summary_layout.addWidget(label, i, 0)
+            summary_layout.addWidget(value, i, 1)
             self.summary_labels[key] = value
             
-        kingdom_layout.addWidget(summary_group)
+        left_column.addWidget(summary_group)
+        left_column.addStretch()
         
-        # Kingdom charts
+        # Right column for trend charts
+        right_column = QVBoxLayout()
+        
         self.charts_tabs = QTabWidget()
+        self.charts_tabs.setStyleSheet("""
+            QTabWidget::pane {
+                border: 1px solid #cccccc;
+                border-radius: 4px;
+                padding: 5px;
+            }
+            QTabBar::tab {
+                padding: 8px 12px;
+            }
+            QTabBar::tab:selected {
+                background: #2060c0;
+                color: white;
+            }
+        """)
         
-        # Power trend tab
+        # Power trend tab with better sizing
         power_tab = QWidget()
         power_layout = QVBoxLayout()
         power_tab.setLayout(power_layout)
         self.power_canvas = None
-        self.power_layout = power_layout  # Store reference to layout
+        self.power_layout = power_layout
         self.charts_tabs.addTab(power_tab, "Power Trends")
         
         # Kill points trend tab
@@ -737,26 +762,32 @@ class AnalyticsTab(QWidget):
         kp_layout = QVBoxLayout()
         kp_tab.setLayout(kp_layout)
         self.kp_canvas = None
-        self.kp_layout = kp_layout  # Store reference to layout
-        self.charts_tabs.addTab(kp_tab, "Kill Points Trends")
+        self.kp_layout = kp_layout
+        self.charts_tabs.addTab(kp_tab, "Kill Points")
         
         # T4/T5 kills trend tab
         kills_tab = QWidget()
         kills_layout = QVBoxLayout()
         kills_tab.setLayout(kills_layout)
         self.kills_canvas = None
-        self.kills_layout = kills_layout  # Store reference to layout
-        self.charts_tabs.addTab(kills_tab, "T4/T5 Kills Trend")
+        self.kills_layout = kills_layout
+        self.charts_tabs.addTab(kills_tab, "T4/T5 Kills")
         
         # Alliance distribution tab
         alliance_tab = QWidget()
         alliance_layout = QVBoxLayout()
         alliance_tab.setLayout(alliance_layout)
         self.alliance_canvas = None
-        self.alliance_layout = alliance_layout  # Store reference to layout
+        self.alliance_layout = alliance_layout
         self.charts_tabs.addTab(alliance_tab, "Alliance Power")
         
-        kingdom_layout.addWidget(self.charts_tabs)
+        right_column.addWidget(self.charts_tabs)
+        
+        # Add columns to split layout
+        kingdom_split.addLayout(left_column, 1)
+        kingdom_split.addLayout(right_column, 3)
+        kingdom_layout.addLayout(kingdom_split)
+        
         analysis_tabs.addTab(kingdom_tab, "Kingdom Overview")
         
         # Governor Comparison Tab
@@ -764,16 +795,18 @@ class AnalyticsTab(QWidget):
         self.comparison_layout = QVBoxLayout()
         comparison_tab.setLayout(self.comparison_layout)
         
-        # Governor selection
+        # Governor selection in a group box
         selection_group = QGroupBox("Select Governors to Compare")
         selection_layout = QVBoxLayout()
         selection_group.setLayout(selection_layout)
         
-        # Add governor ID input
+        # Add governor ID input with better styling
         gov_input_layout = QHBoxLayout()
         self.gov_input = QLineEdit()
         self.gov_input.setPlaceholderText("Enter Governor ID")
+        self.gov_input.setMinimumHeight(30)
         add_gov_btn = QPushButton("Add")
+        add_gov_btn.setMinimumHeight(30)
         add_gov_btn.clicked.connect(self.add_governor_to_comparison)
         gov_input_layout.addWidget(self.gov_input)
         gov_input_layout.addWidget(add_gov_btn)
@@ -781,16 +814,21 @@ class AnalyticsTab(QWidget):
         
         # List of added governors
         self.gov_list = QListWidget()
+        self.gov_list.setMinimumHeight(150)
         selection_layout.addWidget(self.gov_list)
         
-        # Control buttons
+        # Control buttons with better styling
         control_layout = QHBoxLayout()
         remove_gov_btn = QPushButton("Remove Selected")
+        remove_gov_btn.setMinimumHeight(30)
         remove_gov_btn.clicked.connect(self.remove_governor_from_comparison)
         clear_gov_btn = QPushButton("Clear All")
+        clear_gov_btn.setMinimumHeight(30)
         clear_gov_btn.clicked.connect(self.clear_comparison_list)
         compare_btn = QPushButton("Compare")
+        compare_btn.setMinimumHeight(30)
         compare_btn.clicked.connect(self.update_comparison)
+        
         control_layout.addWidget(remove_gov_btn)
         control_layout.addWidget(clear_gov_btn)
         control_layout.addWidget(compare_btn)
@@ -800,9 +838,10 @@ class AnalyticsTab(QWidget):
         self.comparison_layout.addWidget(selection_group)
         
         self.comparison_result_label = QLabel("Add governors and click Compare to see comparison")
+        self.comparison_result_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.comparison_layout.addWidget(self.comparison_result_label)
         analysis_tabs.addTab(comparison_tab, "Governor Comparison")
-        
+
         # Predictive Analysis Tab
         prediction_tab = QWidget()
         self.prediction_layout = QVBoxLayout()
@@ -815,12 +854,17 @@ class AnalyticsTab(QWidget):
         
         self.pred_gov_input = QLineEdit()
         self.pred_gov_input.setPlaceholderText("Enter Governor ID")
+        self.pred_gov_input.setMinimumHeight(30)
+        
         self.days_spinbox = QSpinBox()
         self.days_spinbox.setRange(7, 90)
         self.days_spinbox.setValue(30)
         self.days_spinbox.setPrefix("Predict ")
         self.days_spinbox.setSuffix(" days")
+        self.days_spinbox.setMinimumHeight(30)
+        
         predict_btn = QPushButton("Generate Prediction")
+        predict_btn.setMinimumHeight(30)
         predict_btn.clicked.connect(self.update_prediction)
         
         pred_selection_layout.addWidget(self.pred_gov_input)
@@ -828,14 +872,32 @@ class AnalyticsTab(QWidget):
         pred_selection_layout.addWidget(predict_btn)
         
         self.prediction_layout.addWidget(pred_selection_group)
-        self.prediction_layout.addWidget(QLabel("Enter a governor ID and click Generate Prediction"))
+        
+        # Add instruction label with better styling
+        instruction_label = QLabel("Enter a governor ID and click Generate Prediction")
+        instruction_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        instruction_label.setStyleSheet("color: #666666; padding: 10px;")
+        self.prediction_layout.addWidget(instruction_label)
+        
         analysis_tabs.addTab(prediction_tab, "Predictive Analysis")
         
         # Add the analysis tabs to the main layout
         main_layout.addWidget(analysis_tabs)
         
-        # Refresh button at bottom
+        # Refresh button at bottom with better styling
         refresh_btn = QPushButton("Refresh Analytics")
+        refresh_btn.setMinimumHeight(35)
+        refresh_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #2060c0;
+                color: white;
+                border-radius: 4px;
+                padding: 6px;
+            }
+            QPushButton:hover {
+                background-color: #1a4b99;
+            }
+        """)
         refresh_btn.clicked.connect(self.refresh_analytics)
         main_layout.addWidget(refresh_btn)
         
