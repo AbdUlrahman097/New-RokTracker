@@ -722,45 +722,41 @@ class AnalyticsTab(QWidget):
         kingdom_layout.addWidget(summary_group)
         
         # Kingdom charts
-        charts_tabs = QTabWidget()
+        self.charts_tabs = QTabWidget()
         
         # Power trend tab
         power_tab = QWidget()
         power_layout = QVBoxLayout()
         power_tab.setLayout(power_layout)
-        self.power_canvas = self.analytics.create_power_trend_plot()
-        if self.power_canvas:
-            power_layout.addWidget(self.power_canvas)
-        charts_tabs.addTab(power_tab, "Power Trends")
+        self.power_canvas = None
+        self.power_layout = power_layout  # Store reference to layout
+        self.charts_tabs.addTab(power_tab, "Power Trends")
         
         # Kill points trend tab
         kp_tab = QWidget()
         kp_layout = QVBoxLayout()
         kp_tab.setLayout(kp_layout)
-        self.kp_canvas = self.analytics.create_killpoints_trend_plot()
-        if self.kp_canvas:
-            kp_layout.addWidget(self.kp_canvas)
-        charts_tabs.addTab(kp_tab, "Kill Points Trends")
+        self.kp_canvas = None
+        self.kp_layout = kp_layout  # Store reference to layout
+        self.charts_tabs.addTab(kp_tab, "Kill Points Trends")
         
         # T4/T5 kills trend tab
         kills_tab = QWidget()
         kills_layout = QVBoxLayout()
         kills_tab.setLayout(kills_layout)
-        self.kills_canvas = self.analytics.create_t4t5_kills_trend_plot()
-        if self.kills_canvas:
-            kills_layout.addWidget(self.kills_canvas)
-        charts_tabs.addTab(kills_tab, "T4/T5 Kills Trend")
+        self.kills_canvas = None
+        self.kills_layout = kills_layout  # Store reference to layout
+        self.charts_tabs.addTab(kills_tab, "T4/T5 Kills Trend")
         
         # Alliance distribution tab
         alliance_tab = QWidget()
         alliance_layout = QVBoxLayout()
         alliance_tab.setLayout(alliance_layout)
-        self.alliance_canvas = self.analytics.create_alliance_power_distribution()
-        if self.alliance_canvas:
-            alliance_layout.addWidget(self.alliance_canvas)
-        charts_tabs.addTab(alliance_tab, "Alliance Power")
+        self.alliance_canvas = None
+        self.alliance_layout = alliance_layout  # Store reference to layout
+        self.charts_tabs.addTab(alliance_tab, "Alliance Power")
         
-        kingdom_layout.addWidget(charts_tabs)
+        kingdom_layout.addWidget(self.charts_tabs)
         analysis_tabs.addTab(kingdom_tab, "Kingdom Overview")
         
         # Governor Comparison Tab
@@ -885,52 +881,65 @@ class AnalyticsTab(QWidget):
         
         if not governor_ids:
             return
-        
-        # Create comparison plot
-        canvas = self.analytics.create_governor_comparison_plot(governor_ids)
-        
-        # Get comparison data
-        df = self.analytics.compare_governors(governor_ids)
-        
-        # Create results widget to show table of comparisons
-        results_group = QGroupBox("Comparison Results")
-        results_layout = QGridLayout()
-        results_group.setLayout(results_layout)
-        
-        # Add headers
-        headers = ['Name', 'Alliance', 'Current Power', 'Daily Growth', 'Predicted Growth']
-        for i, header in enumerate(headers):
-            label = QLabel(header)
-            label.setStyleSheet("font-weight: bold;")
-            results_layout.addWidget(label, 0, i)
-        
-        # Add data rows
-        for idx, (_, gov_data) in enumerate(df.iterrows(), start=1):
-            results_layout.addWidget(QLabel(str(gov_data.get('name', ''))), idx, 0)
-            results_layout.addWidget(QLabel(str(gov_data.get('alliance', '') or '')), idx, 1)
-            results_layout.addWidget(QLabel(f"{gov_data.get('current_power', 0)/1_000_000:.1f}M"), idx, 2)
-            results_layout.addWidget(QLabel(f"{gov_data.get('daily_power_growth', 0)/1_000_000:+.2f}M/day"), idx, 3)
             
-            predicted_growth = gov_data.get('predicted_power_growth')
-            power_r2 = gov_data.get('power_r2')
-            if predicted_growth is not None and power_r2 is not None:
-                predicted = f"{predicted_growth/1_000_000:+.2f}M/day (R²={power_r2:.2f})"
-            else:
-                predicted = "Insufficient data"
-            results_layout.addWidget(QLabel(predicted), idx, 4)
-        
-        # Clear previous results
-        while self.comparison_layout.count() > 1:
-            item = self.comparison_layout.takeAt(1)
-            widget = item.widget() if item is not None else None
-            if widget is not None:
-                widget.setParent(None)
-                widget.deleteLater()
-        
-        # Add new results
-        self.comparison_canvas = canvas
-        self.comparison_layout.addWidget(self.comparison_canvas)
-        self.comparison_layout.addWidget(results_group)
+        try:
+            # Create comparison plot
+            canvas = self.analytics.create_governor_comparison_plot(governor_ids)
+            if canvas is None:
+                QMessageBox.warning(self, "Insufficient Data", 
+                                  "Not enough historical data for comparison.")
+                return
+            
+            # Get comparison data
+            df = self.analytics.compare_governors(governor_ids)
+            if df.empty:
+                QMessageBox.warning(self, "No Data", 
+                                  "No comparison data available for the selected governors.")
+                return
+            
+            # Create results widget to show table of comparisons
+            results_group = QGroupBox("Comparison Results")
+            results_layout = QGridLayout()
+            results_group.setLayout(results_layout)
+            
+            # Add headers
+            headers = ['Name', 'Alliance', 'Current Power', 'Daily Growth', 'Predicted Growth']
+            for i, header in enumerate(headers):
+                label = QLabel(header)
+                label.setStyleSheet("font-weight: bold;")
+                results_layout.addWidget(label, 0, i)
+            
+            # Add data rows
+            for idx, (_, gov_data) in enumerate(df.iterrows(), start=1):
+                results_layout.addWidget(QLabel(str(gov_data.get('name', ''))), idx, 0)
+                results_layout.addWidget(QLabel(str(gov_data.get('alliance', '') or '')), idx, 1)
+                results_layout.addWidget(QLabel(f"{gov_data.get('current_power', 0)/1_000_000:.1f}M"), idx, 2)
+                results_layout.addWidget(QLabel(f"{gov_data.get('daily_power_growth', 0)/1_000_000:+.2f}M/day"), idx, 3)
+                
+                predicted_growth = gov_data.get('predicted_power_growth')
+                power_r2 = gov_data.get('power_r2')
+                if predicted_growth is not None and power_r2 is not None:
+                    predicted = f"{predicted_growth/1_000_000:+.2f}M/day (R²={power_r2:.2f})"
+                else:
+                    predicted = "Insufficient data"
+                results_layout.addWidget(QLabel(predicted), idx, 4)
+            
+            # Clear previous results
+            while self.comparison_layout.count() > 1:
+                item = self.comparison_layout.takeAt(1)
+                widget = item.widget() if item is not None else None
+                if widget is not None:
+                    widget.setParent(None)
+                    widget.deleteLater()
+            
+            # Add new results
+            self.comparison_canvas = canvas
+            self.comparison_layout.addWidget(self.comparison_canvas)
+            self.comparison_layout.addWidget(results_group)
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to create comparison: {str(e)}")
+            return
 
     def update_prediction(self):
         gov_id = self.pred_gov_input.text().strip()
@@ -941,25 +950,29 @@ class AnalyticsTab(QWidget):
             
         days = self.days_spinbox.value()
         
-        # Create prediction plot
-        canvas = self.analytics.create_governor_prediction_plot(gov_id, days)
-        
-        if canvas is None:
-            QMessageBox.warning(self, "Insufficient Data", 
-                              "Need at least 3 data points to generate predictions.")
-            return
+        try:
+            # Create prediction plot
+            canvas = self.analytics.create_governor_prediction_plot(gov_id, days)
             
-        # Clear previous results if they exist
-        while self.prediction_layout.count() > 2:
-            item = self.prediction_layout.takeAt(2)
-            widget = item.widget() if item is not None else None
-            if widget is not None:
-                widget.setParent(None)
-                widget.deleteLater()
-        
-        # Add new prediction plot
-        self.prediction_canvas = canvas
-        self.prediction_layout.addWidget(self.prediction_canvas)
+            if canvas is None:
+                QMessageBox.warning(self, "Insufficient Data", 
+                                  "Need at least 3 data points to generate predictions.")
+                return
+                
+            # Clear previous results if they exist
+            while self.prediction_layout.count() > 2:
+                item = self.prediction_layout.takeAt(2)
+                widget = item.widget() if item is not None else None
+                if widget is not None:
+                    widget.setParent(None)
+                    widget.deleteLater()
+            
+            # Add new prediction plot
+            self.prediction_canvas = canvas
+            self.prediction_layout.addWidget(self.prediction_canvas)
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to create prediction: {str(e)}")
 
     def clear_layout(self, layout):
         """Safely clear all widgets from a layout"""
@@ -974,20 +987,51 @@ class AnalyticsTab(QWidget):
                     self.clear_layout(item.layout())
 
     def refresh_analytics(self):
-        summary = self.analytics.get_kingdom_summary()
-        if summary:
-            for key, label in self.summary_labels.items():
-                label.setText(str(summary.get(key, '')))
-        
-        # Refresh all charts
-        if hasattr(self, 'power_canvas'):
-            self.power_canvas.draw()
-        if hasattr(self, 'kp_canvas'):
-            self.kp_canvas.draw()
-        if hasattr(self, 'kills_canvas'):
-            self.kills_canvas.draw()
-        if hasattr(self, 'alliance_canvas'):
-            self.alliance_canvas.draw()
+        try:
+            # Update summary statistics
+            summary = self.analytics.get_kingdom_summary()
+            if summary:
+                for key, label in self.summary_labels.items():
+                    value = summary.get(key, '')
+                    label.setText(str(value))
+            else:
+                for label in self.summary_labels.values():
+                    label.setText("No data")
+
+            # Refresh power trend chart
+            if self.power_canvas is not None:
+                self.power_layout.removeWidget(self.power_canvas)
+                self.power_canvas.deleteLater()
+            self.power_canvas = self.analytics.create_power_trend_plot()
+            if self.power_canvas:
+                self.power_layout.addWidget(self.power_canvas)
+
+            # Refresh kill points trend chart
+            if self.kp_canvas is not None:
+                self.kp_layout.removeWidget(self.kp_canvas)
+                self.kp_canvas.deleteLater()
+            self.kp_canvas = self.analytics.create_killpoints_trend_plot()
+            if self.kp_canvas:
+                self.kp_layout.addWidget(self.kp_canvas)
+
+            # Refresh T4/T5 kills trend chart
+            if self.kills_canvas is not None:
+                self.kills_layout.removeWidget(self.kills_canvas)
+                self.kills_canvas.deleteLater()
+            self.kills_canvas = self.analytics.create_t4t5_kills_trend_plot()
+            if self.kills_canvas:
+                self.kills_layout.addWidget(self.kills_canvas)
+
+            # Refresh alliance power chart
+            if self.alliance_canvas is not None:
+                self.alliance_layout.removeWidget(self.alliance_canvas)
+                self.alliance_canvas.deleteLater()
+            self.alliance_canvas = self.analytics.create_alliance_power_distribution()
+            if self.alliance_canvas:
+                self.alliance_layout.addWidget(self.alliance_canvas)
+
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to refresh analytics: {str(e)}")
 
     def export_kingdom_report(self):
         try:

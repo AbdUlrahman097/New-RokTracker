@@ -79,7 +79,7 @@ class KingdomAnalytics:
                        ha='center', va='bottom')
                        
             # Rotate x-axis labels for better readability
-            plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
+            ax.set_xticklabels(ax.get_xticklabels(), rotation=45, ha='right')
         
         ax.set_title('Top 10 Alliances by Total Power')
         ax.set_xlabel('Alliance')
