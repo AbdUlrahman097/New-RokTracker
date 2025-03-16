@@ -5,6 +5,11 @@ from matplotlib.figure import Figure
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from datetime import datetime, timedelta
 from scipy import stats
+from scipy.signal import savgol_filter
+from statsmodels.tsa.seasonal import seasonal_decompose
+from statsmodels.tsa.holtwinters import ExponentialSmoothing
+from sklearn.preprocessing import StandardScaler
+from sklearn.covariance import EllipticEnvelope
 from .database import HistoricalDatabase
 
 class KingdomAnalytics:
@@ -69,7 +74,7 @@ class KingdomAnalytics:
             df = df.nlargest(10, 'total_power')
             
             # Create bar plot
-            bars = ax.bar(df['alliance'], df['total_power'] / 1_000_000)
+            bars = ax.bar(range(len(df)), df['total_power'] / 1_000_000)
             
             # Add value labels on top of bars
             for bar in bars:
@@ -77,9 +82,10 @@ class KingdomAnalytics:
                 ax.text(bar.get_x() + bar.get_width()/2., height,
                        f'{int(height):,}M',
                        ha='center', va='bottom')
-                       
-            # Rotate x-axis labels for better readability
-            ax.set_xticklabels(ax.get_xticklabels(), rotation=45, ha='right')
+            
+            # Set x-axis ticks and labels properly
+            ax.set_xticks(range(len(df)))
+            ax.set_xticklabels(df['alliance'], rotation=45, ha='right')
         
         ax.set_title('Top 10 Alliances by Total Power')
         ax.set_xlabel('Alliance')
@@ -165,15 +171,14 @@ class KingdomAnalytics:
         power_ax.set_ylabel('Power (Million)')
         power_ax.grid(True)
         power_ax.legend()
-        power_ax.tick_params(axis='x', rotation=45)
         
         kp_ax.set_title('Kill Points Comparison')
         kp_ax.set_xlabel('Date')
         kp_ax.set_ylabel('Kill Points (Million)')
         kp_ax.grid(True)
         kp_ax.legend()
-        kp_ax.tick_params(axis='x', rotation=45)
         
+        fig.autofmt_xdate()
         fig.tight_layout()
         return FigureCanvasQTAgg(fig)
 
@@ -241,15 +246,14 @@ class KingdomAnalytics:
         power_ax.set_ylabel('Power (Million)')
         power_ax.grid(True)
         power_ax.legend()
-        power_ax.tick_params(axis='x', rotation=45)
         
         kp_ax.set_title(f'Kill Points Prediction\nGrowth: {predictions["daily_kp_growth"]:.2f}M/day')
         kp_ax.set_xlabel('Date')
         kp_ax.set_ylabel('Kill Points (Million)')
         kp_ax.grid(True)
         kp_ax.legend()
-        kp_ax.tick_params(axis='x', rotation=45)
         
+        fig.autofmt_xdate()
         fig.tight_layout()
         return FigureCanvasQTAgg(fig)
 
@@ -292,3 +296,245 @@ class KingdomAnalytics:
             })
             
         return pd.DataFrame(comparisons)
+
+    def _calculate_moving_average(self, series, window=7):
+        """Calculate moving average with the specified window"""
+        return series.rolling(window=window, min_periods=1).mean()
+
+    def _calculate_exp_smoothing(self, series, seasons=None):
+        """Calculate exponential smoothing, optionally with seasonality"""
+        if len(series) < 2:
+            return series
+        
+        if seasons:
+            model = ExponentialSmoothing(
+                series,
+                seasonal_periods=seasons,
+                trend='add',
+                seasonal='add'
+            )
+        else:
+            model = ExponentialSmoothing(
+                series,
+                trend='add'
+            )
+        
+        return model.fit().fittedvalues
+
+    def _fit_polynomial(self, x, y, degree=2):
+        """Fit polynomial regression of specified degree"""
+        coeffs = np.polyfit(x, y, degree)
+        poly = np.poly1d(coeffs)
+        return poly, coeffs
+
+    def _detect_anomalies(self, data, contamination=0.1):
+        """Detect anomalies using Elliptic Envelope"""
+        scaler = StandardScaler()
+        data_scaled = scaler.fit_transform(data.reshape(-1, 1))
+        outlier_detector = EllipticEnvelope(contamination=contamination, random_state=42)
+        labels = outlier_detector.fit_predict(data_scaled)
+        return labels == -1  # True for anomalies
+
+    def analyze_power_trends(self, days=30):
+        """Advanced power trend analysis with multiple statistical methods"""
+        df = self.db.get_kingdom_trends(days=days)
+        if len(df) < 3:
+            return None
+
+        dates = pd.to_datetime(df['scan_date'])
+        power_values = df['avg_power'].values
+        date_nums = (dates - dates.min()).dt.total_seconds()
+
+        # Calculate various trends
+        ma_trend = self._calculate_moving_average(df['avg_power'])
+        exp_smooth = self._calculate_exp_smoothing(df['avg_power'])
+        
+        # Polynomial regression
+        poly, coeffs = self._fit_polynomial(date_nums, power_values)
+        poly_trend = poly(date_nums)
+
+        # Time series decomposition (if enough data points)
+        if len(df) >= 14:  # Need reasonable number of points for decomposition
+            try:
+                decomposition = seasonal_decompose(
+                    df['avg_power'], 
+                    period=7,  # Weekly seasonality
+                    extrapolate_trend=1
+                )
+                trend = decomposition.trend
+                seasonal = decomposition.seasonal
+                residual = decomposition.resid
+            except:
+                trend = None
+                seasonal = None
+                residual = None
+        else:
+            trend = None
+            seasonal = None
+            residual = None
+
+        # Detect anomalies
+        anomalies = self._detect_anomalies(power_values)
+
+        return {
+            'dates': dates,
+            'original': power_values,
+            'moving_average': ma_trend,
+            'exp_smoothing': exp_smooth,
+            'polynomial': poly_trend,
+            'poly_coeffs': coeffs,
+            'trend': trend,
+            'seasonal': seasonal,
+            'residual': residual,
+            'anomalies': anomalies,
+            'anomaly_dates': dates[anomalies],
+            'anomaly_values': power_values[anomalies]
+        }
+
+    def analyze_killpoints_trends(self, days=30):
+        """Advanced kill points trend analysis with multiple statistical methods"""
+        df = self.db.get_kingdom_trends(days=days)
+        if len(df) < 3:
+            return None
+
+        dates = pd.to_datetime(df['scan_date'])
+        kp_values = df['avg_killpoints'].values
+        date_nums = (dates - dates.min()).dt.total_seconds()
+
+        # Calculate various trends
+        ma_trend = self._calculate_moving_average(df['avg_killpoints'])
+        exp_smooth = self._calculate_exp_smoothing(df['avg_killpoints'])
+        
+        # Polynomial regression
+        poly, coeffs = self._fit_polynomial(date_nums, kp_values)
+        poly_trend = poly(date_nums)
+
+        # Time series decomposition (if enough data points)
+        if len(df) >= 14:
+            try:
+                decomposition = seasonal_decompose(
+                    df['avg_killpoints'], 
+                    period=7,  # Weekly seasonality
+                    extrapolate_trend=1  # Use 1 period for extrapolation
+                )
+                trend = decomposition.trend
+                seasonal = decomposition.seasonal
+                residual = decomposition.resid
+            except:
+                trend = None
+                seasonal = None
+                residual = None
+        else:
+            trend = None
+            seasonal = None
+            residual = None
+
+        # Detect anomalies
+        anomalies = self._detect_anomalies(kp_values)
+
+        return {
+            'dates': dates,
+            'original': kp_values,
+            'moving_average': ma_trend,
+            'exp_smoothing': exp_smooth,
+            'polynomial': poly_trend,
+            'poly_coeffs': coeffs,
+            'trend': trend,
+            'seasonal': seasonal,
+            'residual': residual,
+            'anomalies': anomalies,
+            'anomaly_dates': dates[anomalies],
+            'anomaly_values': kp_values[anomalies]
+        }
+
+    def create_advanced_power_trend_plot(self):
+        """Creates an enhanced power trend plot with multiple statistical indicators"""
+        analysis = self.analyze_power_trends()
+        if analysis is None:
+            return None
+
+        fig = Figure(figsize=(12, 8))
+        
+        # Main trend plot
+        ax1 = fig.add_subplot(211)
+        ax1.plot(analysis['dates'], analysis['original'] / 1_000_000, 'o-', label='Original', alpha=0.5)
+        ax1.plot(analysis['dates'], analysis['moving_average'] / 1_000_000, 'r-', label='Moving Average', linewidth=2)
+        ax1.plot(analysis['dates'], analysis['exp_smoothing'] / 1_000_000, 'g-', label='Exp Smoothing', linewidth=2)
+        ax1.plot(analysis['dates'], analysis['polynomial'] / 1_000_000, 'b--', label='Polynomial Trend', linewidth=2)
+        
+        # Plot anomalies if any found
+        if len(analysis['anomaly_dates']) > 0:
+            ax1.scatter(analysis['anomaly_dates'], 
+                       analysis['anomaly_values'] / 1_000_000,
+                       color='red', marker='x', s=100, label='Anomalies')
+
+        ax1.set_title('Power Trends Analysis')
+        ax1.set_xlabel('Date')
+        ax1.set_ylabel('Power (Million)')
+        ax1.grid(True)
+        ax1.legend()
+
+        # Decomposition plot if available
+        if analysis['trend'] is not None:
+            ax2 = fig.add_subplot(212)
+            ax2.plot(analysis['dates'], analysis['trend'] / 1_000_000, 'b-', label='Trend')
+            if analysis['seasonal'] is not None:
+                ax2.plot(analysis['dates'], analysis['seasonal'] / 1_000_000, 'g-', label='Seasonal')
+            if analysis['residual'] is not None:
+                ax2.plot(analysis['dates'], analysis['residual'] / 1_000_000, 'r-', label='Residual')
+            
+            ax2.set_title('Time Series Decomposition')
+            ax2.set_xlabel('Date')
+            ax2.set_ylabel('Components (Million)')
+            ax2.grid(True)
+            ax2.legend()
+
+        fig.autofmt_xdate()
+        fig.tight_layout()
+        return FigureCanvasQTAgg(fig)
+
+    def create_advanced_killpoints_trend_plot(self):
+        """Creates an enhanced kill points trend plot with multiple statistical indicators"""
+        analysis = self.analyze_killpoints_trends()
+        if analysis is None:
+            return None
+
+        fig = Figure(figsize=(12, 8))
+        
+        # Main trend plot
+        ax1 = fig.add_subplot(211)
+        ax1.plot(analysis['dates'], analysis['original'] / 1_000_000, 'o-', label='Original', alpha=0.5)
+        ax1.plot(analysis['dates'], analysis['moving_average'] / 1_000_000, 'r-', label='Moving Average', linewidth=2)
+        ax1.plot(analysis['dates'], analysis['exp_smoothing'] / 1_000_000, 'g-', label='Exp Smoothing', linewidth=2)
+        ax1.plot(analysis['dates'], analysis['polynomial'] / 1_000_000, 'b--', label='Polynomial Trend', linewidth=2)
+        
+        # Plot anomalies if any found
+        if len(analysis['anomaly_dates']) > 0:
+            ax1.scatter(analysis['anomaly_dates'], 
+                       analysis['anomaly_values'] / 1_000_000,
+                       color='red', marker='x', s=100, label='Anomalies')
+
+        ax1.set_title('Kill Points Trends Analysis')
+        ax1.set_xlabel('Date')
+        ax1.set_ylabel('Kill Points (Million)')
+        ax1.grid(True)
+        ax1.legend()
+
+        # Decomposition plot if available
+        if analysis['trend'] is not None:
+            ax2 = fig.add_subplot(212)
+            ax2.plot(analysis['dates'], analysis['trend'] / 1_000_000, 'b-', label='Trend')
+            if analysis['seasonal'] is not None:
+                ax2.plot(analysis['dates'], analysis['seasonal'] / 1_000_000, 'g-', label='Seasonal')
+            if analysis['residual'] is not None:
+                ax2.plot(analysis['dates'], analysis['residual'] / 1_000_000, 'r-', label='Residual')
+            
+            ax2.set_title('Time Series Decomposition')
+            ax2.set_xlabel('Date')
+            ax2.set_ylabel('Components (Million)')
+            ax2.grid(True)
+            ax2.legend()
+
+        fig.autofmt_xdate()
+        fig.tight_layout()
+        return FigureCanvasQTAgg(fig)

@@ -7,6 +7,9 @@ import subprocess
 import socket
 import configparser
 import sys
+import os
+import time
+import logging
 
 from roktracker.utils.exceptions import AdbError
 from roktracker.utils.general import to_int_or
@@ -36,24 +39,21 @@ def get_bluestacks_port(bluestacks_device_name: str, config) -> int:
 
 
 class AdvancedAdbClient:
-    def __init__(
-        self,
-        adb_path: str,
-        port: int,
-        player: str,
-        script_base: str | Path,
-        start_immediately=False,
-    ):
-        self.server_port = 0
-        self.client_port = port
+    def __init__(self, adb_path: str, port: int, bs_emu: str, inputs_path: Path):
         self.adb_path = adb_path
-        self.started = start_immediately
-        self.player = player
-        self.script_base = Path(script_base)
-
-        if start_immediately:
-            self.start_adb()
-
+        self.port = port
+        self.bs_emu = bs_emu
+        self.inputs_path = inputs_path
+        self.device_id = f"localhost:{port}"
+        
+        # Initialize required attributes
+        self.device = None  # Will be set during start_adb
+        self.player = bs_emu.lower()  # 'bluestacks' or 'ld'
+        self.script_base = inputs_path
+        
+        # Set ADB server port in environment
+        os.environ['ANDROID_ADB_SERVER_PORT'] = str(5037)  # Use standard ADB port
+        
     def get_free_port(self) -> int:
         s = socket.socket()
         s.bind(("", 0))
@@ -65,49 +65,70 @@ class AdvancedAdbClient:
         self.adb_path = path
 
     def kill_adb(self) -> None:
-        console.print("Killing ADB server...")
-        process = subprocess.run(
-            [self.adb_path, "-P " + str(self.server_port), "kill-server"],
-            stdout=subprocess.PIPE,
-            universal_newlines=True,
-        )
-        console.print(process.stdout)
+        """Kill ADB server"""
+        try:
+            subprocess.run(
+                [self.adb_path, "kill-server"],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+        except Exception as e:
+            logging.warning(f"Error killing ADB server: {str(e)}")
+            # Don't raise error as this is cleanup
+            pass
 
     def start_adb(self) -> None:
-        self.server_port = self.get_free_port()
-        console.print("Starting adb server and connecting to adb device...")
-        process = subprocess.run(
-            [
-                self.adb_path,
-                "-P " + str(self.server_port),
-                "connect",
-                "localhost:" + str(self.client_port),
-            ],
-            stdout=subprocess.PIPE,
-            universal_newlines=True,
-        )
-        console.print(process.stdout)
+        """Start ADB server and connect to device"""
         try:
-            adb_client = AdbClient(
-                serialno=".*", hostname="localhost", port=self.server_port
-            )
-        except RuntimeError as error:
-            console.log("No device connected, aborting.")
+            # Kill any existing ADB server first
             self.kill_adb()
-            raise AdbError(str(error))
-        self.device = adb_client
+            time.sleep(1)  # Wait for server to fully stop
+            
+            # Start ADB server
+            result = subprocess.run(
+                [self.adb_path, "start-server"],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            time.sleep(1)  # Wait for server to start
+            
+            # Connect to device
+            result = subprocess.run(
+                [self.adb_path, "connect", self.device_id],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            
+            # Initialize ADB client
+            self.device = AdbClient(serialno=self.device_id)
+            
+            # Verify connection
+            if "connected" not in result.stdout.lower():
+                raise AdbError(f"Failed to connect to device: {result.stdout}")
+                
+        except subprocess.CalledProcessError as e:
+            raise AdbError(f"ADB command failed: {e.stdout} {e.stderr}")
+        except Exception as e:
+            raise AdbError(f"Failed to start ADB: {str(e)}")
 
     def secure_adb_shell(self, command_to_execute: str) -> str:
         result = ""
         for i in range(3):
             try:
+                if not self.device:
+                    self.start_adb()  # Ensure device is initialized
+                if not self.device:
+                    raise AdbError("Failed to initialize ADB device")
+                    
                 result = str(self.device.shell(command_to_execute))
-            except:
-                console.print("[red]ADB crashed[/red]")
+                return result
+            except Exception as e:
+                console.print(f"[red]ADB command failed: {str(e)}[/red]")
                 self.kill_adb()
                 self.start_adb()
-            else:
-                return result
         return result
 
     def secure_adb_tap(self, position: Tuple[int, int]):
@@ -117,13 +138,17 @@ class AdvancedAdbClient:
         result = NewImage(mode="RGB", size=(1, 1))
         for i in range(3):
             try:
+                if not self.device:
+                    self.start_adb()  # Ensure device is initialized
+                if not self.device:
+                    raise AdbError("Failed to initialize ADB device")
+                    
                 result = self.device.takeSnapshot(reconnect=True)
-            except:
-                console.print("[red]ADB crashed[/red]")
+                return result
+            except Exception as e:
+                console.print(f"[red]Screenshot failed: {str(e)}[/red]")
                 self.kill_adb()
                 self.start_adb()
-            else:
-                return result
         return result
 
     def adb_send_events(self, input_device_name: str, event_file: str | Path) -> None:

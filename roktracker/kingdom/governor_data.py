@@ -26,6 +26,7 @@ class GovernorData:
     rss_assistance: str = "Skipped"
     rss_gathered: str = "Skipped"
     helps: str = "Skipped"
+    city_hall: str = "Skipped"
 
     def t45_kills(self) -> str:
         if self.t4_kills != "Skipped" and self.t5_kills != "Skipped":

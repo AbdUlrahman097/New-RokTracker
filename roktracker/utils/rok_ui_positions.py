@@ -23,6 +23,12 @@ ocr_regions = {
     "rss_gathered": (1130, 628, 183, 40),
     "rss_assisted": (1130, 688, 183, 40),
     "alliance_helps": (1130, 746, 183, 40),
+    # city hall level check
+    "city_hall_level": (1218, 633, 34, 25),
+    # settings and search
+    "settings_button": (1348, 780, 80, 25),
+    "search_governor": (1074, 307, 160, 25),
+    "governor_id_input": (250, 150, 850, 50),
 }
 
 # format: (x, y)
@@ -34,4 +40,10 @@ tap_positions = {
     "close_gov": (1454, 88),
     # third screen
     "close_info": (1396, 58),
+    # Settings and City Hall check
+    "back_button": (1393, 53),
+    "settings": (1386, 727),
+    "search_gov_button": (1157, 230),
+    "id_input_field": (405, 140),
+    "search_button": (1342, 142),
 }

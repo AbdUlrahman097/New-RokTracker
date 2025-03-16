@@ -23,6 +23,34 @@ class PandasHandler:
         self.data_list = []
 
     def write_governor(self, gov_data: GovernorData) -> None:
+        # Check if governor already exists
+        if gov_data.id != "Skipped":
+            for i, entry in enumerate(self.data_list):
+                if entry["ID"] == GovernorData.intify_value(gov_data.id):
+                    # Update existing entry
+                    self.data_list[i].update({
+                        "ID": GovernorData.intify_value(gov_data.id),
+                        "Name": gov_data.name,
+                        "Power": GovernorData.intify_value(gov_data.power),
+                        "Killpoints": GovernorData.intify_value(gov_data.killpoints),
+                        "Deads": GovernorData.intify_value(gov_data.dead),
+                        "T1 Kills": GovernorData.intify_value(gov_data.t1_kills),
+                        "T2 Kills": GovernorData.intify_value(gov_data.t2_kills),
+                        "T3 Kills": GovernorData.intify_value(gov_data.t3_kills),
+                        "T4 Kills": GovernorData.intify_value(gov_data.t4_kills),
+                        "T5 Kills": GovernorData.intify_value(gov_data.t5_kills),
+                        "Total Kills": GovernorData.intify_value(gov_data.total_kills()),
+                        "T45 Kills": GovernorData.intify_value(gov_data.t45_kills()),
+                        "Ranged": GovernorData.intify_value(gov_data.ranged_points),
+                        "Rss Gathered": GovernorData.intify_value(gov_data.rss_gathered),
+                        "Rss Assistance": GovernorData.intify_value(gov_data.rss_assistance),
+                        "Helps": GovernorData.intify_value(gov_data.helps),
+                        "Alliance": gov_data.alliance.rstrip(),
+                        "City Hall": GovernorData.intify_value(gov_data.city_hall),
+                    })
+                    return
+
+        # Add new entry if governor wasn't found
         self.data_list.append(
             {
                 "ID": GovernorData.intify_value(gov_data.id),
@@ -42,6 +70,7 @@ class PandasHandler:
                 "Rss Assistance": GovernorData.intify_value(gov_data.rss_assistance),
                 "Helps": GovernorData.intify_value(gov_data.helps),
                 "Alliance": gov_data.alliance.rstrip(),
+                "City Hall": GovernorData.intify_value(gov_data.city_hall),
             }
         )
 

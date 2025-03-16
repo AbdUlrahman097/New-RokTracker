@@ -9,6 +9,8 @@
     "power_threshold": 100000,
     "validate_kills": true,
     "reconstruct_kills": true,
+    "check_cityhall": false,
+    "min_ch_level": 25,
     "timings": {
       "gov_open": 2,
       "copy_wait": 0.2,

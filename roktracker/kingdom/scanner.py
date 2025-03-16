@@ -49,6 +49,7 @@ class KingdomScanner:
         self.config = config
         self.timings = config["scan"]["timings"]
         self.max_random_delay = config["scan"]["timings"]["max_random"]
+        self.port = port  # Store port for reconnection attempts
 
         self.advanced_scroll = config["scan"]["advanced_scroll"]
         self.scan_options = scan_options
@@ -75,12 +76,30 @@ class KingdomScanner:
         self.ask_continue = default_ask_continue
         self.output_handler = default_output_handler
 
-        self.adb_client = AdvancedAdbClient(
-            str(self.root_dir / "deps" / "platform-tools" / "adb.exe"),
-            port,
-            config["general"]["emulator"],
-            self.root_dir / "deps" / "inputs",
-        )
+        # Load CH check options from config first, then allow override from scan options
+        self.check_ch = scan_options.get("check_ch", config["scan"]["check_cityhall"])
+        self.min_ch_level = scan_options.get("min_ch_level", config["scan"]["min_ch_level"])
+        self.output_handler(f"CH check enabled: {self.check_ch}, minimum level: {self.min_ch_level}")
+
+        # Initialize ADB with retry logic
+        retry_count = 0
+        max_retries = 3
+        while retry_count < max_retries:
+            try:
+                self.adb_client = AdvancedAdbClient(
+                    str(self.root_dir / "deps" / "platform-tools" / "adb.exe"),
+                    port,
+                    config["general"]["emulator"],
+                    self.root_dir / "deps" / "inputs",
+                )
+                # Test connection
+                self.adb_client.start_adb()
+                break
+            except Exception as e:
+                retry_count += 1
+                if retry_count == max_retries:
+                    raise Exception(f"Failed to initialize ADB after {max_retries} attempts: {str(e)}")
+                time.sleep(2)  # Wait before retry
 
     def set_governor_callback(
         self, cb: Callable[[GovernorData, AdditionalData], None]
@@ -187,6 +206,166 @@ class KingdomScanner:
             case _:
                 return False
 
+    def check_city_hall_level(self, governor_id: str) -> int:
+        """Check a governor's city hall level through settings search"""
+        self.state_callback("Checking City Hall level")
+        
+        # Only navigate to search screen for first governor
+        if not hasattr(self, '_in_search_screen') or not self._in_search_screen:
+            # Navigate to search screen only once
+            self.adb_client.secure_adb_tap(rok_ui.tap_positions["back_button"])
+            wait_random_range(0.3, self.max_random_delay)
+            
+            self.adb_client.secure_adb_tap(rok_ui.tap_positions["back_button"])
+            wait_random_range(0.3, self.max_random_delay)
+            
+            self.adb_client.secure_adb_tap(rok_ui.tap_positions["settings"])
+            wait_random_range(0.3, self.max_random_delay)
+            
+            self.adb_client.secure_adb_tap(rok_ui.tap_positions["search_gov_button"])
+            wait_random_range(0.5, self.max_random_delay)
+            
+            self._in_search_screen = True
+        
+        # Clear any modal dialogs by tapping empty space first
+        self.adb_client.secure_adb_tap((100, 100))
+        wait_random_range(0.1, 0.5)  # Restored to 0.5
+        
+        # Clear previous ID by clicking input field and using backspace
+        self.adb_client.secure_adb_tap(rok_ui.tap_positions["id_input_field"])
+        wait_random_range(0.1, 0.5)  # Restored to 0.5
+        
+        # Send backspace key multiple times with small delays to ensure field is clear
+        for _ in range(20):
+            self.adb_client.secure_adb_shell("input keyevent KEYCODE_DEL")
+            time.sleep(0.03)  # Reduced from 0.05
+        wait_random_range(0.1, 0.5)  # Restored to 0.5
+        
+        # Input new governor ID
+        self.adb_client.secure_adb_shell(f"input text {governor_id}")
+        wait_random_range(0.3, 0.5)  # Restored to 0.5
+        
+        # Double click search button
+        self.adb_client.secure_adb_tap(rok_ui.tap_positions["search_button"])
+        wait_random_range(0.05, 0.5)  # Restored to 0.5
+        self.adb_client.secure_adb_tap(rok_ui.tap_positions["search_button"])
+        
+        # Reduced wait time to ensure search results and CH level are fully visible
+        wait_random_range(1.0, 0.5)  # Restored to 0.5
+        
+        # Take multiple screenshots to ensure we get a good one
+        ch_level = 0
+        max_attempts = 1
+        screenshot_success = False
+        
+        for attempt in range(max_attempts):
+            screenshot = self.adb_client.secure_adb_screencap()
+            if screenshot is None:
+                self.output_handler(f"Failed to capture screenshot for CH level check (attempt {attempt + 1})")
+                continue
+                
+            screenshot.save(self.img_path / f"ch_level_{attempt}.png")
+            
+            try:
+                image = load_cv2_img(self.img_path / f"ch_level_{attempt}.png", cv2.IMREAD_UNCHANGED)
+                if image is None or image.size == 0:
+                    self.output_handler(f"Failed to load screenshot for CH level check (attempt {attempt + 1})")
+                    continue
+                    
+                ch_level_region = cropToRegion(image, rok_ui.ocr_regions["city_hall_level"])
+                if ch_level_region is None or ch_level_region.size == 0:
+                    self.output_handler(f"Failed to extract CH level region (attempt {attempt + 1})")
+                    continue
+                
+                # Save region for debugging
+                write_cv2_img(ch_level_region, self.img_path / f"ch_level_region_{attempt}.png", "png")
+                
+                # Enhanced OCR processing
+                try:
+                    with PyTessBaseAPI(
+                        path=str(self.tesseract_path), 
+                        psm=PSM.SINGLE_WORD, 
+                        oem=OEM.LSTM_ONLY
+                    ) as api:
+                        # Set whitelist to only allow numbers
+                        api.SetVariable("tessedit_char_whitelist", "0123456789")
+                        
+                        # Convert to grayscale if not already
+                        if len(ch_level_region.shape) > 2:
+                            ch_level_region = cv2.cvtColor(ch_level_region, cv2.COLOR_BGR2GRAY)
+                        
+                        # Invert colors (dark text on light background works better)
+                        ch_level_region = cv2.bitwise_not(ch_level_region)
+                        
+                        # Scale up image for better OCR
+                        scale_factor = 4
+                        ch_level_region = cv2.resize(ch_level_region, None, 
+                                                   fx=scale_factor, fy=scale_factor, 
+                                                   interpolation=cv2.INTER_CUBIC)
+                        
+                        # Apply adaptive thresholding
+                        ch_level_region = cv2.adaptiveThreshold(
+                            ch_level_region,
+                            255,
+                            cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                            cv2.THRESH_BINARY,
+                            11,
+                            2
+                        )
+                        
+                        # Add padding around the text
+                        padding = 40
+                        ch_level_region = cv2.copyMakeBorder(
+                            ch_level_region,
+                            padding, padding, padding, padding,
+                            cv2.BORDER_CONSTANT,
+                            value=[255]
+                        )
+                        
+                        # Save preprocessed image for debugging
+                        write_cv2_img(ch_level_region, 
+                                    self.img_path / f"ch_level_preprocessed_{attempt}.png", 
+                                    "png")
+                        
+                        # Try multiple PSM modes and validate results
+                        for psm_mode in [PSM.SINGLE_WORD, PSM.SINGLE_LINE, PSM.SINGLE_CHAR]:
+                            api.SetPageSegMode(psm_mode)
+                            api.SetImage(Image.fromarray(ch_level_region))
+                            result = api.GetUTF8Text().strip()
+                            result = re.sub("[^0-9]", "", result)
+                            
+                            if result and result.isdigit():
+                                num = int(result)
+                                # For levels 1-9, enforce single digit
+                                if 1 <= num <= 9:
+                                    ch_level = num
+                                    self.output_handler(f"Successfully read single-digit CH level {ch_level} (attempt {attempt + 1}, PSM mode {psm_mode})")
+                                    break
+                                # For levels 10-25, enforce two digits and valid first digit (1 or 2)
+                                elif 10 <= num <= 25 and len(result) == 2 and result[0] in ['1', '2']:
+                                    ch_level = num
+                                    self.output_handler(f"Successfully read double-digit CH level {ch_level} (attempt {attempt + 1}, PSM mode {psm_mode})")
+                                    break
+                        
+                        if ch_level > 0:
+                            break
+
+                except Exception as e:
+                    self.output_handler(f"OCR error on attempt {attempt + 1}: {str(e)}")
+                    continue
+
+            except Exception as e:
+                self.output_handler(f"Image processing error on attempt {attempt + 1}: {str(e)}")
+                continue
+
+        # Clear input field for next governor
+        self.adb_client.secure_adb_tap(rok_ui.tap_positions["id_input_field"])
+        wait_random_range(0.5, self.max_random_delay)
+        for _ in range(20):
+            self.adb_client.secure_adb_shell("input keyevent KEYCODE_DEL")
+        
+        return ch_level
+
     def scan_governor(
         self,
         current_player: int,
@@ -279,44 +458,18 @@ class KingdomScanner:
             self.adb_client.secure_adb_screencap().save(self.img_path / "gov_info.png")
             image = load_cv2_img(self.img_path / "gov_info.png", cv2.IMREAD_UNCHANGED)
 
-            if self.scan_options["Name"]:
-                # nickname copy
-                copy_try = 0
-                while copy_try < 3:
-                    try:
-                        self.adb_client.secure_adb_tap(
-                            rok_ui.tap_positions["name_copy"]
-                        )
-                        wait_random_range(
-                            self.timings["copy_wait"], self.max_random_delay
-                        )
-                        tk_clipboard = tkinter.Tk()
-                        governor_data.name = tk_clipboard.clipboard_get()
-                        tk_clipboard.destroy()
-                        break
-                    except:
-                        console.log("Name copy failed, retying")
-                        logging.log(logging.INFO, "Name copy failed, retying")
-                        copy_try = copy_try + 1
-
-            # 1st image data (ID, Power, Killpoints, Alliance)
+            # Get all normal data
             with PyTessBaseAPI(
                 path=str(self.tesseract_path), psm=PSM.SINGLE_WORD, oem=OEM.LSTM_ONLY
             ) as api:
                 if self.scan_options["Power"]:
                     im_gov_power = cropToRegion(image, rok_ui.ocr_regions["power"])
                     im_gov_power_bw = preprocessImage(im_gov_power, 3, 100, 12, True)
-
                     governor_data.power = ocr_number(api, im_gov_power_bw)
 
                 if self.scan_options["Killpoints"]:
-                    im_gov_killpoints = cropToRegion(
-                        image, rok_ui.ocr_regions["killpoints"]
-                    )
-                    im_gov_killpoints_bw = preprocessImage(
-                        im_gov_killpoints, 3, 100, 12, True
-                    )
-
+                    im_gov_killpoints = cropToRegion(image, rok_ui.ocr_regions["killpoints"])
+                    im_gov_killpoints_bw = preprocessImage(im_gov_killpoints, 3, 100, 12, True)
                     governor_data.killpoints = ocr_number(api, im_gov_killpoints_bw)
 
                 api.SetPageSegMode(PSM.SINGLE_LINE)
@@ -327,94 +480,157 @@ class KingdomScanner:
                     (thresh, im_gov_id_bw) = cv2.threshold(
                         im_gov_id_gray, 120, 255, cv2.THRESH_BINARY
                     )
-
                     governor_data.id = ocr_number(api, im_gov_id_bw)
 
                 if self.scan_options["Alliance"]:
-                    im_alliance_tag = cropToRegion(
-                        image, rok_ui.ocr_regions["alliance_name"]
-                    )
+                    im_alliance_tag = cropToRegion(image, rok_ui.ocr_regions["alliance_name"])
                     im_alliance_bw = preprocessImage(im_alliance_tag, 3, 50, 12, True)
-
                     governor_data.alliance = ocr_text(api, im_alliance_bw)
+
+            # Get name if needed
+            if self.scan_options["Name"]:
+                copy_try = 0
+                while copy_try < 3:
+                    try:
+                        self.adb_client.secure_adb_tap(rok_ui.tap_positions["name_copy"])
+                        wait_random_range(self.timings["copy_wait"], self.max_random_delay)
+                        tk_clipboard = tkinter.Tk()
+                        governor_data.name = tk_clipboard.clipboard_get()
+                        tk_clipboard.destroy()
+                        break
+                    except:
+                        console.log("Name copy failed, retying")
+                        logging.log(logging.INFO, "Name copy failed, retying")
+                        copy_try = copy_try + 1
 
         if self.is_page_needed(2):
             # kills tier
-            self.adb_client.secure_adb_tap(rok_ui.tap_positions["open_kills"])
-            self.state_callback("Scanning kills page")
-            wait_random_range(self.timings["kills_open"], self.max_random_delay)
+            try:
+                max_attempts = 3
+                screenshot_success = False
+                
+                for attempt in range(max_attempts):
+                    # Open kills page
+                    self.adb_client.secure_adb_tap(rok_ui.tap_positions["open_kills"])
+                    self.state_callback(f"Scanning kills page (attempt {attempt + 1}/{max_attempts})")
+                    wait_random_range(self.timings["kills_open"], self.max_random_delay)
+                    
+                    # Take screenshot and verify it was saved
+                    screenshot = self.adb_client.secure_adb_screencap()
+                    if screenshot is None:
+                        self.output_handler(f"Failed to capture kills page screenshot (attempt {attempt + 1})")
+                        continue
+                    
+                    kills_tier_path = self.img_path / "kills_tier.png"
+                    try:
+                        screenshot.save(kills_tier_path)
+                        if kills_tier_path.exists():
+                            screenshot_success = True
+                            break
+                        else:
+                            self.output_handler(f"Failed to verify kills page screenshot (attempt {attempt + 1})")
+                    except Exception as e:
+                        self.output_handler(f"Error saving kills page screenshot (attempt {attempt + 1}): {str(e)}")
+                        continue
+                    
+                    # Add a small delay before next attempt
+                    wait_random_range(0.5, 1.0)
 
-            self.adb_client.secure_adb_screencap().save(
-                self.img_path / "kills_tier.png"
-            )
-            image2 = load_cv2_img(
-                self.img_path / "kills_tier.png", cv2.IMREAD_UNCHANGED
-            )
-            image2 = cv2.cvtColor(image2, cv2.COLOR_BGR2RGB)
+                if not screenshot_success:
+                    raise Exception("Failed to capture kills page screenshot after all attempts")
 
-            with PyTessBaseAPI(
-                path=str(self.tesseract_path), psm=PSM.SINGLE_WORD, oem=OEM.LSTM_ONLY
-            ) as api:
+                image2 = load_cv2_img(str(kills_tier_path), cv2.IMREAD_UNCHANGED)
+                if image2 is None or image2.size == 0:
+                    self.output_handler("Failed to load kills page screenshot")
+                    raise Exception("Failed to load kills page screenshot")
+
+                image2 = cv2.cvtColor(image2, cv2.COLOR_BGR2RGB)
+
+                with PyTessBaseAPI(
+                    path=str(self.tesseract_path), psm=PSM.SINGLE_WORD, oem=OEM.LSTM_ONLY
+                ) as api:
+                    if self.scan_options["T1 Kills"]:
+                        # tier 1 Kills
+                        governor_data.t1_kills = preprocess_and_ocr_number(
+                            api, image2, rok_ui.ocr_regions["t1_kills"]
+                        )
+
+                        # tier 1 KP
+                        governor_data.t1_kp = preprocess_and_ocr_number(
+                            api, image2, rok_ui.ocr_regions["t1_killpoints"]
+                        )
+
+                    if self.scan_options["T2 Kills"]:
+                        # tier 2 Kills
+                        governor_data.t2_kills = preprocess_and_ocr_number(
+                            api, image2, rok_ui.ocr_regions["t2_kills"]
+                        )
+
+                        # tier 2 KP
+                        governor_data.t2_kp = preprocess_and_ocr_number(
+                            api, image2, rok_ui.ocr_regions["t2_killpoints"]
+                        )
+
+                    if self.scan_options["T3 Kills"]:
+                        # tier 3 Kills
+                        governor_data.t3_kills = preprocess_and_ocr_number(
+                            api, image2, rok_ui.ocr_regions["t3_kills"]
+                        )
+
+                        # tier 3 KP
+                        governor_data.t3_kp = preprocess_and_ocr_number(
+                            api, image2, rok_ui.ocr_regions["t3_killpoints"]
+                        )
+
+                    if self.scan_options["T4 Kills"]:
+                        # tier 4 Kills
+                        governor_data.t4_kills = preprocess_and_ocr_number(
+                            api, image2, rok_ui.ocr_regions["t4_kills"]
+                        )
+
+                        # tier 4 KP
+                        governor_data.t4_kp = preprocess_and_ocr_number(
+                            api, image2, rok_ui.ocr_regions["t4_killpoints"]
+                        )
+
+                    if self.scan_options["T5 Kills"]:
+                        # tier 5 Kills
+                        governor_data.t5_kills = preprocess_and_ocr_number(
+                            api, image2, rok_ui.ocr_regions["t5_kills"]
+                        )
+
+                        # tier 5 KP
+                        governor_data.t5_kp = preprocess_and_ocr_number(
+                            api, image2, rok_ui.ocr_regions["t5_killpoints"]
+                        )
+
+                    if self.scan_options["Ranged"]:
+                        # ranged points
+                        governor_data.ranged_points = preprocess_and_ocr_number(
+                            api, image2, rok_ui.ocr_regions["ranged_points"]
+                        )
+
+            except Exception as e:
+                self.output_handler(f"Error processing kills page: {str(e)}")
+                logger.error(f"Error processing kills page: {str(e)}")
+                # Set kills data to "Unknown" since we couldn't read it
                 if self.scan_options["T1 Kills"]:
-                    # tier 1 Kills
-                    governor_data.t1_kills = preprocess_and_ocr_number(
-                        api, image2, rok_ui.ocr_regions["t1_kills"]
-                    )
-
-                    # tier 1 KP
-                    governor_data.t1_kp = preprocess_and_ocr_number(
-                        api, image2, rok_ui.ocr_regions["t1_killpoints"]
-                    )
-
+                    governor_data.t1_kills = "Unknown"
+                    governor_data.t1_kp = "Unknown"
                 if self.scan_options["T2 Kills"]:
-                    # tier 2 Kills
-                    governor_data.t2_kills = preprocess_and_ocr_number(
-                        api, image2, rok_ui.ocr_regions["t2_kills"]
-                    )
-
-                    # tier 2 KP
-                    governor_data.t2_kp = preprocess_and_ocr_number(
-                        api, image2, rok_ui.ocr_regions["t2_killpoints"]
-                    )
-
+                    governor_data.t2_kills = "Unknown"
+                    governor_data.t2_kp = "Unknown"
                 if self.scan_options["T3 Kills"]:
-                    # tier 3 Kills
-                    governor_data.t3_kills = preprocess_and_ocr_number(
-                        api, image2, rok_ui.ocr_regions["t3_kills"]
-                    )
-
-                    # tier 3 KP
-                    governor_data.t3_kp = preprocess_and_ocr_number(
-                        api, image2, rok_ui.ocr_regions["t3_killpoints"]
-                    )
-
+                    governor_data.t3_kills = "Unknown"
+                    governor_data.t3_kp = "Unknown"
                 if self.scan_options["T4 Kills"]:
-                    # tier 4 Kills
-                    governor_data.t4_kills = preprocess_and_ocr_number(
-                        api, image2, rok_ui.ocr_regions["t4_kills"]
-                    )
-
-                    # tier 4 KP
-                    governor_data.t4_kp = preprocess_and_ocr_number(
-                        api, image2, rok_ui.ocr_regions["t4_killpoints"]
-                    )
-
+                    governor_data.t4_kills = "Unknown"
+                    governor_data.t4_kp = "Unknown"
                 if self.scan_options["T5 Kills"]:
-                    # tier 5 Kills
-                    governor_data.t5_kills = preprocess_and_ocr_number(
-                        api, image2, rok_ui.ocr_regions["t5_kills"]
-                    )
-
-                    # tier 5 KP
-                    governor_data.t5_kp = preprocess_and_ocr_number(
-                        api, image2, rok_ui.ocr_regions["t5_killpoints"]
-                    )
-
+                    governor_data.t5_kills = "Unknown"
+                    governor_data.t5_kp = "Unknown"
                 if self.scan_options["Ranged"]:
-                    # ranged points
-                    governor_data.ranged_points = preprocess_and_ocr_number(
-                        api, image2, rok_ui.ocr_regions["ranged_points"]
-                    )
+                    governor_data.ranged_points = "Unknown"
 
         if self.is_page_needed(3):
             # More info tab
@@ -447,7 +663,6 @@ class KingdomScanner:
                         api, image3, rok_ui.ocr_regions["alliance_helps"], True
                     )
 
-        # Just to check the progress, printing in cmd the result for each governor
         governor_data.flag_unknown()
 
         self.state_callback("Closing governor")
@@ -500,23 +715,23 @@ class KingdomScanner:
         filename = f"{file_name_prefix}{amount - j}-{self.start_date}-{kingdom}-[{self.run_id}]"
         data_handler = PandasHandler(self.scan_path, filename, formats)
 
-        # The loop in TOP XXX Governors in kingdom - It works both for power and killpoints Rankings
-        # MUST have the tab opened to the 1st governor(Power or Killpoints)
+        # Store governors we need to check CH level for later
+        governors_to_check = []
+        governors_data_map = {}  # Store full governor data by ID
 
-        last_two = False
-        next_gov_to_scan = -1
+        # Initialize variables for scan loop
+        next_gov_to_scan = j - 1  # Initialize to one less than starting point
         last_gov_power = -1
+        last_two = False
 
+        # First pass: Normal scan of all governors
         for i in range(j, amount):
             if self.stop_scan:
                 self.output_handler("Scan Terminated! Saving the current progress...")
                 break
 
             next_gov_to_scan = max(next_gov_to_scan + 1, i)
-            gov_data = self.scan_governor(
-                next_gov_to_scan,
-                track_inactives,
-            )
+            gov_data = self.scan_governor(next_gov_to_scan, track_inactives)
 
             # Check for duplicate governor
             if data_handler.is_duplicate(to_int_check(gov_data.id)):
@@ -573,7 +788,7 @@ class KingdomScanner:
                         )
                         logging.log(
                             logging.INFO,
-                            "Reached final governor on the screen. Scan complete.",
+                            "Reached final governor on the screen. Scan complete."
                         )
                         self.state_callback("Scan finished")
                         return
@@ -581,6 +796,7 @@ class KingdomScanner:
             now = datetime.datetime.now()
             current_time = now.strftime("%H:%M:%S")
 
+            # Do normal validations
             kills_ok = "Not Checked"
             reconstruction_success = "Not Checked"
             if validate_kills:
@@ -610,7 +826,32 @@ class KingdomScanner:
                 else:
                     self.save_failed("power", gov_data)
 
-            # Write results in excel file
+            # Store full governor data for later CH checks - Add debug logging
+            if self.check_ch and gov_data.id != "Skipped":
+                self.output_handler(f"Processing governor {gov_data.name} (ID: {gov_data.id}) for CH check queue")
+                try:
+                    power = int(gov_data.power)
+                    if power >= 35000000:
+                        gov_data.city_hall = "25"
+                        self.output_handler(f"Governor {gov_data.name} (ID: {gov_data.id}) power {power:,} > 35M, assuming CH 25")
+                    else:
+                        self.output_handler(f"Adding governor {gov_data.name} (ID: {gov_data.id}) to CH check queue")
+                        governors_data_map[gov_data.id] = gov_data
+                        governors_to_check.append({
+                            "id": gov_data.id,
+                            "name": gov_data.name,
+                            "power": power
+                        })
+                except (ValueError, TypeError):
+                    self.output_handler(f"Adding governor {gov_data.name} (ID: {gov_data.id}) to CH check queue (power unknown)")
+                    governors_data_map[gov_data.id] = gov_data
+                    governors_to_check.append({
+                        "id": gov_data.id,
+                        "name": gov_data.name,
+                        "power": 0
+                    })
+
+            # Write initial results
             data_handler.write_governor(gov_data)
             data_handler.save()
 
@@ -626,11 +867,75 @@ class KingdomScanner:
 
             self.gov_callback(gov_data, additional_info)
 
+        # Save final results from first pass
         data_handler.save()
-        self.output_handler("Reached the target amount of people. Scan complete.")
-        logging.log(logging.INFO, "Reached the target amount of people. Scan complete.")
-        self.adb_client.kill_adb()  # make sure to clean up adb server
-        self.state_callback("Scan finished")
+        
+        # Make sure we're back at rankings view
+        self.adb_client.secure_adb_tap(rok_ui.tap_positions["back_button"])
+        wait_random_range(1, self.max_random_delay)
+        
+        # Second pass: Check City Hall levels if needed
+        if self.check_ch and governors_to_check:
+            total_to_check = len(governors_to_check)
+            self.state_callback(f"Starting City Hall level checks for {total_to_check} governors...")
+            self.output_handler(f"Starting CH level checks for {total_to_check} governors")
+            
+            for idx, gov in enumerate(governors_to_check):
+                if self.stop_scan:
+                    self.output_handler("CH Level Check Terminated! Saving progress...")
+                    break
+
+                gov_id = gov["id"]
+                gov_name = gov["name"]
+                
+                self.state_callback(f"Checking CH level for {gov_name} ({idx + 1}/{total_to_check})")
+                self.output_handler(f"Checking CH level for {gov_name}")
+                
+                ch_level = self.check_city_hall_level(gov_id)
+                
+                # Update CH level in the stored governor data
+                if gov_id in governors_data_map:
+                    gov_data = governors_data_map[gov_id]
+                    gov_data.city_hall = str(ch_level)
+                    
+                    # Update progress for UI
+                    additional_info = AdditionalData(
+                        idx + 1,
+                        total_to_check,
+                        self.inactive_players,
+                        "Not Checked",
+                        "Not Checked",
+                        "Not Checked",
+                        self.get_remaining_time(total_to_check - idx),
+                    )
+                    
+                    self.output_handler(f"Governor {gov_name} (ID: {gov_id}) - CH level {ch_level}")
+                    
+                    if ch_level < self.min_ch_level:
+                        self.output_handler(f"Governor {gov_name} (ID: {gov_id}) - CH level {ch_level} below minimum {self.min_ch_level}")
+                        self.inactive_players += 1
+
+                    data_handler.write_governor(gov_data)
+                    data_handler.save()
+                    
+                    self.gov_callback(gov_data, additional_info)
+                
+                self.adb_client.secure_adb_tap(rok_ui.tap_positions["back_button"])
+                wait_random_range(1.0, 0.5)
+                
+                wait_random_range(0.75, 0.5)
+
+            self.adb_client.secure_adb_tap(rok_ui.tap_positions["back_button"])
+            wait_random_range(1, self.max_random_delay)
+            self.adb_client.secure_adb_tap(rok_ui.tap_positions["back_button"]) 
+            wait_random_range(1, self.max_random_delay)
+            self.adb_client.secure_adb_tap(rok_ui.tap_positions["back_button"])
+            wait_random_range(1, self.max_random_delay)
+
+        self.output_handler("Scan and CH checks complete.")
+        logging.log(logging.INFO, "Scan and CH checks complete.")
+        self.adb_client.kill_adb()
+        self.state_callback("All scans finished")
         return
 
     def end_scan(self):
