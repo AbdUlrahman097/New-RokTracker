@@ -114,10 +114,8 @@ class HorizontalCheckboxFrame(QFrame):
             
             checkbox = QCheckBox()
             if isinstance(value["default"], bool):
-                # Handle boolean default value
                 checkbox.setChecked(value["default"])
             elif callable(value["default"]):
-                # Handle function default value
                 checkbox.setChecked(value["default"]())
             layout.addWidget(checkbox, row + 1, col)
             
@@ -139,12 +137,10 @@ class TimePickerDialog(QDialog):
         layout = QVBoxLayout()
         self.setLayout(layout)
         
-        # Calendar
         self.calendar = QCalendarWidget()
         self.calendar.setMinimumDate(date.today())
         layout.addWidget(self.calendar)
         
-        # Time selection
         time_frame = QFrame()
         time_layout = QHBoxLayout()
         time_frame.setLayout(time_layout)
@@ -156,7 +152,6 @@ class TimePickerDialog(QDialog):
         
         layout.addWidget(time_frame)
         
-        # Buttons
         button_frame = QFrame()
         button_layout = QHBoxLayout()
         button_frame.setLayout(button_layout)
@@ -234,7 +229,7 @@ class ScheduleFrame(QFrame):
             self.countdown_label.show()
             self.cancel_button.show()
             self.update_countdown()
-            self.countdown_timer.start(1000)  # Update every second
+            self.countdown_timer.start(1000)
 
     def update_countdown(self):
         if self.scheduled_time:
@@ -246,12 +241,10 @@ class ScheduleFrame(QFrame):
                 self.countdown_timer.stop()
                 self.countdown_label.hide()
                 self.cancel_button.hide()
-                # Get the parent window to start the scan
                 parent = self
                 while parent.parent():
                     parent = parent.parent()
                     if isinstance(parent, App):
-                        # Use Thread to start the scan to avoid UI freezing
                         Thread(target=parent.launch_scanner).start()
                         break
                 self.schedule_switch.setChecked(False)
@@ -279,12 +272,13 @@ class BasicOptionsFrame(QFrame):
     def __init__(self, config):
         super().__init__()
         self.config = config
-        self.setMinimumWidth(400)
+        self.setMinimumWidth(350)
 
         main_layout = QVBoxLayout()
+        main_layout.setSpacing(5)
+        main_layout.setContentsMargins(5, 5, 5, 5)
         self.setLayout(main_layout)
 
-        # Scan Info Group
         scan_group = QGroupBox("Scan Information")
         scan_layout = QGridLayout()
         scan_group.setLayout(scan_layout)
@@ -308,7 +302,6 @@ class BasicOptionsFrame(QFrame):
 
         main_layout.addWidget(scan_group)
 
-        # BlueStacks Settings Group
         bluestacks_group = QGroupBox("BlueStacks Settings")
         bluestacks_layout = QGridLayout()
         bluestacks_group.setLayout(bluestacks_layout)
@@ -328,7 +321,6 @@ class BasicOptionsFrame(QFrame):
 
         main_layout.addWidget(bluestacks_group)
 
-        # Scan Options Group
         options_group = QGroupBox("Scan Options")
         options_layout = QGridLayout()
         options_group.setLayout(options_layout)
@@ -373,7 +365,6 @@ class BasicOptionsFrame(QFrame):
         self.power_threshold_text.setText(str(config["scan"]["power_threshold"]))
         options_layout.addWidget(self.power_threshold_text, row, 1)
 
-        # Add City Hall check option after other scan options
         self.check_ch_switch = QCheckBox("Check City Hall Level")
         if config["scan"].get("check_cityhall", False):
             self.check_ch_switch.setChecked(True)
@@ -386,12 +377,10 @@ class BasicOptionsFrame(QFrame):
         self.ch_level_text.setEnabled(self.check_ch_switch.isChecked())
         options_layout.addWidget(self.ch_level_text, row + 1, 2)
 
-        # Connect checkbox to enable/disable CH level input
         self.check_ch_switch.stateChanged.connect(self.toggle_ch_level)
 
         main_layout.addWidget(options_group)
 
-        # Timing Settings Group
         timing_group = QGroupBox("Timing Settings")
         timing_layout = QGridLayout()
         timing_group.setLayout(timing_layout)
@@ -410,7 +399,6 @@ class BasicOptionsFrame(QFrame):
 
         main_layout.addWidget(timing_group)
 
-        # Schedule frame
         schedule_group = QGroupBox("Schedule")
         schedule_layout = QVBoxLayout()
         schedule_group.setLayout(schedule_layout)
@@ -418,7 +406,6 @@ class BasicOptionsFrame(QFrame):
         schedule_layout.addWidget(self.schedule_frame)
         main_layout.addWidget(schedule_group)
 
-        # Output options
         output_group = QGroupBox("Output Formats")
         output_layout = QVBoxLayout()
         output_group.setLayout(output_layout)
@@ -444,7 +431,6 @@ class BasicOptionsFrame(QFrame):
         output_layout.addWidget(self.output_options)
         main_layout.addWidget(output_group)
 
-        # Add vertical spacer at the bottom to push everything up
         main_layout.addStretch()
 
     def set_uuid(self, uuid):
@@ -536,8 +522,10 @@ class BasicOptionsFrame(QFrame):
 class ScanOptionsFrame(QFrame):
     def __init__(self, values):
         super().__init__()
-        self.setMinimumWidth(300)
+        self.setMinimumWidth(250)
         layout = QVBoxLayout()
+        layout.setSpacing(5)
+        layout.setContentsMargins(5, 5, 5, 5)
         self.setLayout(layout)
         self.values = values
 
@@ -578,10 +566,9 @@ class AdditionalStatusInfo(QFrame):
         super().__init__()
         self.values: Dict[str, QLabel] = {}
         layout = QGridLayout()
-        layout.setSpacing(10)  # Add more spacing between elements
+        layout.setSpacing(5)
+        layout.setContentsMargins(5, 5, 5, 5)
         self.setLayout(layout)
-
-        # Create labels with improved styling
         self.gov_number_var = QLabel("550 of 600")
         self.gov_number_var.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.gov_number_var.setStyleSheet("font-size: 12pt; font-weight: bold;")
@@ -600,7 +587,6 @@ class AdditionalStatusInfo(QFrame):
         self.last_time_var.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.values.update({"time": self.last_time_var})
 
-        # Create header labels
         time_label = QLabel("Current Time")
         time_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         time_label.setStyleSheet("font-weight: bold;")
@@ -613,7 +599,6 @@ class AdditionalStatusInfo(QFrame):
         eta_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         eta_label.setStyleSheet("font-weight: bold;")
 
-        # Layout the widgets in a grid
         layout.addWidget(time_label, 0, 0)
         layout.addWidget(progress_label, 0, 1)
         layout.addWidget(eta_label, 0, 2)
@@ -622,7 +607,6 @@ class AdditionalStatusInfo(QFrame):
         layout.addWidget(self.gov_number_var, 1, 1)
         layout.addWidget(self.approx_time_remaining_var, 1, 2)
         
-        # Add skipped count in its own row
         layout.addWidget(self.govs_skipped_var, 2, 1)
 
     def set_var(self, key, value):
@@ -632,11 +616,12 @@ class AdditionalStatusInfo(QFrame):
 class LastGovernorInfo(QFrame):
     def __init__(self, values):
         super().__init__()
-        self.setMinimumWidth(350)
+        self.setMinimumWidth(300)
         main_layout = QVBoxLayout()
+        main_layout.setSpacing(5)
+        main_layout.setContentsMargins(5, 5, 5, 5)
         self.setLayout(main_layout)
         
-        # Governor info group
         gov_group = QGroupBox("Governor Information")
         gov_layout = QGridLayout()
         gov_group.setLayout(gov_layout)
@@ -661,7 +646,6 @@ class LastGovernorInfo(QFrame):
 
         main_layout.addWidget(gov_group)
         
-        # Stats group with current state
         stats_group = QGroupBox("Scan Status")
         stats_layout = QVBoxLayout()
         stats_group.setLayout(stats_layout)
@@ -701,11 +685,9 @@ class AnalyticsTab(QWidget):
         self.analytics = KingdomAnalytics(self.db)
         self.exporter = AnalyticsExporter(self.db, self.analytics)
         
-        # Main layout
         main_layout = QVBoxLayout()
         self.setLayout(main_layout)
         
-        # Top buttons layout with export options in a group box
         export_group = QGroupBox("Export Options")
         button_layout = QHBoxLayout()
         export_group.setLayout(button_layout)
@@ -722,18 +704,14 @@ class AnalyticsTab(QWidget):
         
         main_layout.addWidget(export_group)
         
-        # Create tab widget for different analysis types
         analysis_tabs = QTabWidget()
         
-        # Kingdom Overview Tab
         kingdom_tab = QWidget()
         kingdom_layout = QVBoxLayout()
         kingdom_tab.setLayout(kingdom_layout)
         
-        # Kingdom Overview Tab - Split into two columns
         kingdom_split = QHBoxLayout()
         
-        # Left column for summary
         left_column = QVBoxLayout()
         summary_group = QGroupBox("Kingdom Summary")
         summary_layout = QGridLayout()
@@ -762,13 +740,10 @@ class AnalyticsTab(QWidget):
         left_column.addWidget(summary_group)
         left_column.addStretch()
         
-        # Right column for trend charts
         right_column = QVBoxLayout()
         
-        # Charts tabs now use advanced plots
         self.charts_tabs = QTabWidget()
         
-        # Power trend tab with advanced analysis
         power_tab = QWidget()
         power_layout = QVBoxLayout()
         power_tab.setLayout(power_layout)
@@ -776,7 +751,6 @@ class AnalyticsTab(QWidget):
         self.power_layout = power_layout
         self.charts_tabs.addTab(power_tab, "Power Analysis")
         
-        # Kill points trend tab with advanced analysis
         kp_tab = QWidget()
         kp_layout = QVBoxLayout()
         kp_tab.setLayout(kp_layout)
@@ -784,7 +758,6 @@ class AnalyticsTab(QWidget):
         self.kp_layout = kp_layout
         self.charts_tabs.addTab(kp_tab, "Kill Points Analysis")
         
-        # T4/T5 kills trend tab remains the same
         kills_tab = QWidget()
         kills_layout = QVBoxLayout()
         kills_tab.setLayout(kills_layout)
@@ -792,7 +765,6 @@ class AnalyticsTab(QWidget):
         self.kills_layout = kills_layout
         self.charts_tabs.addTab(kills_tab, "T4/T5 Kills")
         
-        # Alliance distribution tab remains the same
         alliance_tab = QWidget()
         alliance_layout = QVBoxLayout()
         alliance_tab.setLayout(alliance_layout)
@@ -802,19 +774,16 @@ class AnalyticsTab(QWidget):
         
         right_column.addWidget(self.charts_tabs)
         
-        # Add columns to split layout
         kingdom_split.addLayout(left_column, 1)
         kingdom_split.addLayout(right_column, 3)
         kingdom_layout.addLayout(kingdom_split)
         
         analysis_tabs.addTab(kingdom_tab, "Kingdom Overview")
         
-        # Governor Comparison Tab - Enhanced layout
         comparison_tab = QWidget()
         self.comparison_layout = QVBoxLayout()
         comparison_tab.setLayout(self.comparison_layout)
         
-        # Governor selection in an enhanced group box
         selection_group = QGroupBox("Governor Selection")
         selection_group.setStyleSheet("""
             QGroupBox {
@@ -833,7 +802,6 @@ class AnalyticsTab(QWidget):
         selection_layout = QVBoxLayout()
         selection_group.setLayout(selection_layout)
         
-        # Input area with horizontal layout and better spacing
         input_area = QHBoxLayout()
         input_area.setSpacing(10)
         
@@ -873,7 +841,6 @@ class AnalyticsTab(QWidget):
         input_area.addWidget(add_gov_btn, 1)
         selection_layout.addLayout(input_area)
         
-        # List of added governors with better styling
         self.gov_list = QListWidget()
         self.gov_list.setMinimumHeight(150)
         self.gov_list.setStyleSheet("""
@@ -894,7 +861,6 @@ class AnalyticsTab(QWidget):
         """)
         selection_layout.addWidget(self.gov_list)
         
-        # Control buttons with improved layout and styling
         button_layout = QHBoxLayout()
         button_layout.setSpacing(10)
         
@@ -951,7 +917,6 @@ class AnalyticsTab(QWidget):
         
         self.comparison_layout.addWidget(selection_group)
         
-        # Results area
         self.comparison_result_label = QLabel("Add governors and click Compare to see comparison")
         self.comparison_result_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.comparison_result_label.setStyleSheet("color: #666666; padding: 15px;")
@@ -959,12 +924,10 @@ class AnalyticsTab(QWidget):
         
         analysis_tabs.addTab(comparison_tab, "Governor Comparison")
 
-        # Predictive Analysis Tab - Enhanced layout
         prediction_tab = QWidget()
         self.prediction_layout = QVBoxLayout()
         prediction_tab.setLayout(self.prediction_layout)
         
-        # Enhanced prediction input group
         pred_group = QGroupBox("Prediction Settings")
         pred_group.setStyleSheet("""
             QGroupBox {
@@ -983,11 +946,9 @@ class AnalyticsTab(QWidget):
         pred_layout = QVBoxLayout()
         pred_group.setLayout(pred_layout)
         
-        # Input area with better organization
         input_grid = QGridLayout()
         input_grid.setSpacing(10)
         
-        # Governor ID input with label
         gov_id_label = QLabel("Governor ID:")
         gov_id_label.setStyleSheet("font-weight: normal;")
         self.pred_gov_input = QLineEdit()
@@ -1004,7 +965,6 @@ class AnalyticsTab(QWidget):
             }
         """)
         
-        # Prediction period with label
         period_label = QLabel("Prediction Period:")
         period_label.setStyleSheet("font-weight: normal;")
         self.days_spinbox = QSpinBox()
@@ -1031,7 +991,6 @@ class AnalyticsTab(QWidget):
         
         pred_layout.addLayout(input_grid)
         
-        # Generate prediction button
         predict_btn = QPushButton("Generate Prediction")
         predict_btn.setMinimumHeight(35)
         predict_btn.setStyleSheet("""
@@ -1055,7 +1014,6 @@ class AnalyticsTab(QWidget):
         
         self.prediction_layout.addWidget(pred_group)
         
-        # Enhanced instruction label
         instruction_label = QLabel("Enter a governor ID and select prediction period to generate forecast")
         instruction_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         instruction_label.setStyleSheet("""
@@ -1067,10 +1025,8 @@ class AnalyticsTab(QWidget):
         
         analysis_tabs.addTab(prediction_tab, "Predictive Analysis")
         
-        # Add the analysis tabs to the main layout
         main_layout.addWidget(analysis_tabs)
         
-        # Refresh button at bottom with better styling
         refresh_btn = QPushButton("Refresh Analytics")
         refresh_btn.setMinimumHeight(35)
         refresh_btn.setStyleSheet("""
@@ -1087,7 +1043,6 @@ class AnalyticsTab(QWidget):
         refresh_btn.clicked.connect(self.refresh_analytics)
         main_layout.addWidget(refresh_btn)
         
-        # Initialize analytics
         self.refresh_analytics()
 
     def clear_comparison_list(self):
@@ -1098,7 +1053,6 @@ class AnalyticsTab(QWidget):
 
     def add_governor_to_comparison(self):
         gov_id = self.gov_input.text().strip()
-        # Create a list of existing IDs
         existing_ids = []
         for i in range(self.gov_list.count()):
             item = self.gov_list.item(i)
@@ -1120,7 +1074,6 @@ class AnalyticsTab(QWidget):
                               "Please add at least two governors to compare.")
             return
         
-        # Safely get governor IDs
         governor_ids = []
         for i in range(self.gov_list.count()):
             item = self.gov_list.item(i)
@@ -1131,33 +1084,28 @@ class AnalyticsTab(QWidget):
             return
             
         try:
-            # Create comparison plot
             canvas = self.analytics.create_governor_comparison_plot(governor_ids)
             if canvas is None:
                 QMessageBox.warning(self, "Insufficient Data", 
                                   "Not enough historical data for comparison.")
                 return
             
-            # Get comparison data
             df = self.analytics.compare_governors(governor_ids)
             if df.empty:
                 QMessageBox.warning(self, "No Data", 
                                   "No comparison data available for the selected governors.")
                 return
             
-            # Create results widget to show table of comparisons
             results_group = QGroupBox("Comparison Results")
             results_layout = QGridLayout()
             results_group.setLayout(results_layout)
             
-            # Add headers
             headers = ['Name', 'Alliance', 'Current Power', 'Daily Growth', 'Predicted Growth']
             for i, header in enumerate(headers):
                 label = QLabel(header)
                 label.setStyleSheet("font-weight: bold;")
                 results_layout.addWidget(label, 0, i)
             
-            # Add data rows
             for idx, (_, gov_data) in enumerate(df.iterrows(), start=1):
                 results_layout.addWidget(QLabel(str(gov_data.get('name', ''))), idx, 0)
                 results_layout.addWidget(QLabel(str(gov_data.get('alliance', '') or '')), idx, 1)
@@ -1172,7 +1120,6 @@ class AnalyticsTab(QWidget):
                     predicted = "Insufficient data"
                 results_layout.addWidget(QLabel(predicted), idx, 4)
             
-            # Clear previous results
             while self.comparison_layout.count() > 1:
                 item = self.comparison_layout.takeAt(1)
                 widget = item.widget() if item is not None else None
@@ -1180,7 +1127,6 @@ class AnalyticsTab(QWidget):
                     widget.setParent(None)
                     widget.deleteLater()
             
-            # Add new results
             self.comparison_canvas = canvas
             self.comparison_layout.addWidget(self.comparison_canvas)
             self.comparison_layout.addWidget(results_group)
@@ -1199,7 +1145,6 @@ class AnalyticsTab(QWidget):
         days = self.days_spinbox.value()
         
         try:
-            # Create prediction plot
             canvas = self.analytics.create_governor_prediction_plot(gov_id, days)
             
             if canvas is None:
@@ -1207,7 +1152,6 @@ class AnalyticsTab(QWidget):
                                   "Need at least 3 data points to generate predictions.")
                 return
                 
-            # Clear previous results if they exist
             while self.prediction_layout.count() > 2:
                 item = self.prediction_layout.takeAt(2)
                 widget = item.widget() if item is not None else None
@@ -1215,7 +1159,6 @@ class AnalyticsTab(QWidget):
                     widget.setParent(None)
                     widget.deleteLater()
             
-            # Add new prediction plot
             self.prediction_canvas = canvas
             self.prediction_layout.addWidget(self.prediction_canvas)
             
@@ -1237,7 +1180,6 @@ class AnalyticsTab(QWidget):
     def refresh_analytics(self):
         """Refresh all analytics displays with advanced analysis"""
         try:
-            # Update summary statistics
             summary = self.analytics.get_kingdom_summary()
             if summary:
                 for key, label in self.summary_labels.items():
@@ -1247,7 +1189,6 @@ class AnalyticsTab(QWidget):
                 for label in self.summary_labels.values():
                     label.setText("No data")
 
-            # Refresh power trend chart with advanced analysis
             if self.power_canvas is not None:
                 self.power_layout.removeWidget(self.power_canvas)
                 self.power_canvas.deleteLater()
@@ -1255,7 +1196,6 @@ class AnalyticsTab(QWidget):
             if self.power_canvas:
                 self.power_layout.addWidget(self.power_canvas)
 
-            # Refresh kill points trend chart with advanced analysis
             if self.kp_canvas is not None:
                 self.kp_layout.removeWidget(self.kp_canvas)
                 self.kp_canvas.deleteLater()
@@ -1263,7 +1203,6 @@ class AnalyticsTab(QWidget):
             if self.kp_canvas:
                 self.kp_layout.addWidget(self.kp_canvas)
 
-            # Refresh T4/T5 kills trend chart
             if self.kills_canvas is not None:
                 self.kills_layout.removeWidget(self.kills_canvas)
                 self.kills_canvas.deleteLater()
@@ -1271,7 +1210,6 @@ class AnalyticsTab(QWidget):
             if self.kills_canvas:
                 self.kills_layout.addWidget(self.kills_canvas)
 
-            # Refresh alliance power chart
             if self.alliance_canvas is not None:
                 self.alliance_layout.removeWidget(self.alliance_canvas)
                 self.alliance_canvas.deleteLater()
@@ -1292,7 +1230,6 @@ class AnalyticsTab(QWidget):
             QMessageBox.critical(self, "Error", f"Failed to export kingdom report:\n{str(e)}")
     
     def export_governor_report(self):
-        # Get selected governors from the comparison tab
         governor_ids = []
         for i in range(self.gov_list.count()):
             item = self.gov_list.item(i)
@@ -1313,21 +1250,18 @@ class AnalyticsTab(QWidget):
             QMessageBox.critical(self, "Error", f"Failed to export governor report:\n{str(e)}")
 
 class App(QMainWindow):
-    # Add signals for thread-safe UI updates
     update_ui_signal = pyqtSignal(dict)
     update_state_signal = pyqtSignal(str)
     schedule_scan_signal = pyqtSignal(datetime.datetime)
     
     def __init__(self):
         super().__init__()
-        # Connect signals to slots
         self.update_ui_signal.connect(self._update_ui)
         self.update_state_signal.connect(self._update_state)
         self.schedule_scan_signal.connect(self._handle_scheduled_scan)
         
         self.log_file: TextIOWrapper | None = None
 
-        # Initialize system tray
         self.tray_icon = QSystemTrayIcon(self)
         self.tray_icon.setIcon(QIcon("images/kingdom.png"))
         self.tray_icon.setToolTip("Kingdom Scanner")
@@ -1346,22 +1280,20 @@ class App(QMainWindow):
             self.close()
 
         self.setWindowTitle("Kingdom Scanner")
-        self.setGeometry(100, 100, 900, 650)  # Reduced window size
+        self.setGeometry(100, 100, 750, 500)
 
-        # Initialize database and analytics
         self.db = HistoricalDatabase()
         self.analytics = KingdomAnalytics(self.db)
 
-        # Create main tab widget
         tabs = QTabWidget()
         self.setCentralWidget(tabs)
 
-        # Create Scanner tab
         scanner_widget = QWidget()
         scanner_layout = QHBoxLayout()
+        scanner_layout.setSpacing(5)
+        scanner_layout.setContentsMargins(5, 5, 5, 5)
         scanner_widget.setLayout(scanner_layout)
 
-        # Left panel: Scan options with controls
         left_panel = QWidget()
         left_layout = QVBoxLayout()
         left_panel.setLayout(left_layout)
@@ -1387,7 +1319,6 @@ class App(QMainWindow):
         )
         left_layout.addWidget(self.scan_options_frame)
 
-        # Control buttons under scan options
         controls_group = QGroupBox("Scan Controls")
         controls_layout = QHBoxLayout()
         controls_group.setLayout(controls_layout)
@@ -1405,7 +1336,6 @@ class App(QMainWindow):
         
         left_layout.addWidget(controls_group)
 
-        # Center panel: Basic options
         center_panel = QWidget()
         center_layout = QVBoxLayout()
         center_panel.setLayout(center_layout)
@@ -1413,7 +1343,6 @@ class App(QMainWindow):
         self.options_frame = BasicOptionsFrame(self.config)
         center_layout.addWidget(self.options_frame)
 
-        # Right panel: Governor info with status and current state
         right_panel = QWidget()
         right_layout = QVBoxLayout()
         right_panel.setLayout(right_layout)
@@ -1424,7 +1353,7 @@ class App(QMainWindow):
                 {"name": "Name", "col": 0},
                 {"name": "Power", "col": 0},
                 {"name": "Killpoints", "col": 0},
-                {"name": "City Hall", "col": 0},  # Add City Hall level display
+                {"name": "City Hall", "col": 0},
                 {"name": "T1 Kills", "col": 0},
                 {"name": "T2 Kills", "col": 0},
                 {"name": "T3 Kills", "col": 0},
@@ -1442,15 +1371,12 @@ class App(QMainWindow):
         )
         right_layout.addWidget(self.last_gov_frame)
 
-        # Add panels to scanner layout with stretch factors
         scanner_layout.addWidget(left_panel, 1)
         scanner_layout.addWidget(center_panel, 2)
         scanner_layout.addWidget(right_panel, 1)
 
-        # Add scanner widget to tabs
         tabs.addTab(scanner_widget, "Scanner")
         
-        # Add analytics tab
         analytics_tab = AnalyticsTab(self.db)
         tabs.addTab(analytics_tab, "Analytics")
 
@@ -1499,12 +1425,10 @@ class App(QMainWindow):
         if not self.options_frame.options_valid():
             return
 
-        # Create scanner and objects in the thread where they'll be used
         self.start_scan_button.setEnabled(False)
         scan_options = self.scan_options_frame.get()
         basic_options = self.options_frame.get_options()
 
-        # Add debug logging
         logger.info(f"Scan options: {scan_options}")
         logger.info(f"Basic options: {basic_options}")
         logger.info(f"CH check enabled: {basic_options['check_ch']}, min level: {basic_options['min_ch_level']}")
@@ -1513,18 +1437,15 @@ class App(QMainWindow):
             self.end_scan_button.setEnabled(True)
             self.end_scan_button.setText("End scan")
 
-            # Create scanner with scan_options for page scanning
             self.kingdom_scanner = KingdomScanner(
                 self.config, 
                 scan_options,
                 basic_options["port"]
             )
             
-            # Set CH check options after creation
             self.kingdom_scanner.check_ch = basic_options["check_ch"]
             self.kingdom_scanner.min_ch_level = basic_options["min_ch_level"]
             
-            # Update config with City Hall check options
             self.config["scan"]["check_cityhall"] = basic_options["check_ch"]
             self.config["scan"]["min_ch_level"] = basic_options["min_ch_level"]
             
@@ -1532,7 +1453,6 @@ class App(QMainWindow):
             self.kingdom_scanner.set_state_callback(self.state_callback)
             self.kingdom_scanner.set_continue_handler(self.ask_confirm)
             
-            # Set UUID through signal to be thread-safe
             self.update_ui_signal.emit({"uuid": self.kingdom_scanner.run_id})
 
             logger.info(f"Scan started at {datetime.datetime.now()}")
@@ -1643,7 +1563,7 @@ class App(QMainWindow):
         finally:
             if hasattr(self, 'kingdom_scanner'):
                 try:
-                    self.kingdom_scanner.adb_client.kill_adb()  # Ensure ADB connection is cleaned up
+                    self.kingdom_scanner.adb_client.kill_adb()
                 except:
                     pass
 
@@ -1660,7 +1580,6 @@ class App(QMainWindow):
         if extra_data.skipped_governors == 1:
             skipped_text = f"{extra_data.skipped_governors} skip"
 
-        # Emit signal instead of directly updating UI
         self.update_ui_signal.emit({
             "governor_data": {
                 "ID": gov_data.id,
@@ -1694,11 +1613,9 @@ class App(QMainWindow):
             }
         })
 
-        # Add saving to database
         self.db.save_scan_data(self.kingdom_scanner.run_id, gov_data.name, [gov_data])
 
     def _update_ui(self, data):
-        # Actual UI updates happen in main thread
         if "uuid" in data:
             self.options_frame.set_uuid(data["uuid"])
             
@@ -1718,7 +1635,6 @@ class App(QMainWindow):
             progress = int((data["progress"]["current"] / data["progress"]["total"]) * 100)
             self.last_gov_frame.progress_bar.setValue(progress)
             
-            # Flash taskbar on major progress milestones
             if progress in [25, 50, 75, 100]:
                 self.tray_icon.showMessage(
                     "Scan Progress",
@@ -1727,7 +1643,6 @@ class App(QMainWindow):
                     3000
                 )
 
-        # Handle button states
         if "enable_start" in data:
             self.start_scan_button.setEnabled(True)
             
@@ -1750,15 +1665,12 @@ class App(QMainWindow):
             )
 
     def state_callback(self, state):
-        # Emit signal instead of directly updating UI
         self.update_state_signal.emit(state)
 
     def _update_state(self, state):
-        # Actual UI update happens in main thread
         self.last_gov_frame.current_state.setText(state)
 
     def update_progress(self, current_governor, target_governor):
-        # This method is no longer needed as progress is handled in _update_ui
         pass
 
     def load_preferences(self):
@@ -1773,10 +1685,8 @@ class App(QMainWindow):
 
     def show_notification(self, title: str, message: str, icon=QSystemTrayIcon.MessageIcon.Information):
         """Show both a system notification and a message box"""
-        # System tray notification 
         self.tray_icon.showMessage(title, message, icon, 5000)
 
-        # Message box (use critical for errors, information for success)
         if icon == QSystemTrayIcon.MessageIcon.Critical:
             QMessageBox.critical(self, title, message)
         else:
@@ -1788,26 +1698,21 @@ class App(QMainWindow):
         event.accept()
 
 if __name__ == "__main__":
-    # Set UTF-8 encoding for stdout and stderr
     if sys.stdout.encoding != 'utf-8':
         sys.stdout = open(sys.stdout.fileno(), mode='w', encoding='utf-8', buffering=1)
     if sys.stderr.encoding != 'utf-8':
         sys.stderr = open(sys.stderr.fileno(), mode='w', encoding='utf-8', buffering=1)
     
-    # Initialize QApplication first
     app = QApplication(sys.argv)
     
-    # Initialize ADB server before creating UI
     try:
         print("Initializing ADB server...")
         from roktracker.utils.adb import AdvancedAdbClient
         adb_path = str(Path(get_app_root()) / "deps" / "platform-tools" / "adb.exe")
         
-        # Kill any existing ADB server
         os.system(f'"{adb_path}" kill-server')
         time.sleep(1)
         
-        # Start fresh ADB server
         os.environ['ANDROID_ADB_SERVER_PORT'] = str(5037)
         os.system(f'"{adb_path}" start-server')
         print("ADB server initialized successfully")
@@ -1815,11 +1720,9 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"Warning: Failed to initialize ADB server: {e}")
     
-    # Create and show main window
     window = App()
     window.show()
     
-    # Open log file with UTF-8 encoding
     window.log_file = open(os.devnull, "w", encoding="utf-8")
     sys.stdout = window.log_file
     sys.stderr = window.log_file

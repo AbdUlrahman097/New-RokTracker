@@ -18,6 +18,8 @@ from roktracker.kingdom.governor_data import GovernorData
 from tesserocr import PyTessBaseAPI, PSM, OEM  # type: ignore (tesserocr has no type defs)
 from typing import Callable
 from PIL import Image
+from multiprocessing import Pool, cpu_count
+import cv2
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +102,18 @@ class KingdomScanner:
                 if retry_count == max_retries:
                     raise Exception(f"Failed to initialize ADB after {max_retries} attempts: {str(e)}")
                 time.sleep(2)  # Wait before retry
+
+        # Performance settings
+        self._process_pool = None
+        self._parallel_enabled = scan_options.get("parallel_enabled", True)
+        self._worker_threads = scan_options.get("worker_threads", cpu_count() - 1)
+        self._image_optimization = scan_options.get("image_optimization", True)
+        self._image_quality = scan_options.get("image_quality", 85)
+        self.cached_results = []
+
+        # Initialize process pool if parallel processing is enabled
+        if self._parallel_enabled:
+            self._process_pool = Pool(processes=self._worker_threads)
 
     def set_governor_callback(
         self, cb: Callable[[GovernorData, AdditionalData], None]
@@ -676,12 +690,41 @@ class KingdomScanner:
         )  # close governor info
         wait_random_range(self.timings["gov_close"], self.max_random_delay)
 
+        # Apply image optimization if enabled
+        if self._image_optimization:
+            self._optimize_images()
+
+        # Store result for caching
+        self.cached_results.append(governor_data)
+
         end_time = time.time()
 
         self.output_handler("Time needed for governor: " + str((end_time - start_time)))
         self.scan_times.append(end_time - start_time)
 
         return governor_data
+
+    def _optimize_images(self):
+        """Optimize captured images to reduce memory usage"""
+        try:
+            for img_file in self.img_path.glob("*.png"):
+                try:
+                    image = cv2.imread(str(img_file))
+                    if image is not None:
+                        # Resize if image is too large
+                        if image.shape[0] > 1080 or image.shape[1] > 1920:
+                            scale = min(1080/image.shape[0], 1920/image.shape[1])
+                            new_size = (int(image.shape[1] * scale), int(image.shape[0] * scale))
+                            image = cv2.resize(image, new_size, interpolation=cv2.INTER_AREA)
+                        
+                        # Compress image with configured quality
+                        encode_params = [cv2.IMWRITE_PNG_COMPRESSION, self._image_quality]
+                        _, encoded = cv2.imencode(".png", image, encode_params)
+                        encoded.tofile(str(img_file))
+                except Exception as e:
+                    logger.warning(f"Failed to optimize image {img_file}: {e}")
+        except Exception as e:
+            logger.error(f"Image optimization error: {e}")
 
     def start_scan(
         self,
@@ -695,248 +738,328 @@ class KingdomScanner:
         power_threshold: int,
         formats: OutputFormats,
     ):
-        self.state_callback("Initializing")
-        self.adb_client.start_adb()
-        if track_inactives:
-            self.inactive_path.mkdir(parents=True, exist_ok=True)
+        try:
+            self.state_callback("Initializing")
+            self.adb_client.start_adb()
+            if track_inactives:
+                self.inactive_path.mkdir(parents=True, exist_ok=True)
 
-        ######Excel Formatting
-        # Resume Scan options. Refine the loop
-        j = 0
-        if resume:
-            j = 4
-            amount = amount + j
+            ######Excel Formatting
+            # Resume Scan options. Refine the loop
+            j = 0
+            if resume:
+                j = 4
+                amount = amount + j
 
-        if resume:
-            file_name_prefix = "NEXT"
-        else:
-            file_name_prefix = "TOP"
+            if resume:
+                file_name_prefix = "NEXT"
+            else:
+                file_name_prefix = "TOP"
 
-        filename = f"{file_name_prefix}{amount - j}-{self.start_date}-{kingdom}-[{self.run_id}]"
-        data_handler = PandasHandler(self.scan_path, filename, formats)
+            filename = f"{file_name_prefix}{amount - j}-{self.start_date}-{kingdom}-[{self.run_id}]"
+            data_handler = PandasHandler(self.scan_path, filename, formats)
 
-        # Store governors we need to check CH level for later
-        governors_to_check = []
-        governors_data_map = {}  # Store full governor data by ID
+            # Store governors we need to check CH level for later
+            governors_to_check = []
+            governors_data_map = {}  # Store full governor data by ID
 
-        # Initialize variables for scan loop
-        next_gov_to_scan = j - 1  # Initialize to one less than starting point
-        last_gov_power = -1
-        last_two = False
-
-        # First pass: Normal scan of all governors
-        for i in range(j, amount):
-            if self.stop_scan:
-                self.output_handler("Scan Terminated! Saving the current progress...")
-                break
-
-            next_gov_to_scan = max(next_gov_to_scan + 1, i)
-            gov_data = self.scan_governor(next_gov_to_scan, track_inactives)
-
-            # Check for duplicate governor
-            if data_handler.is_duplicate(to_int_check(gov_data.id)):
-                roi = (196, 698, 52, 27)
-                self.adb_client.secure_adb_screencap().save(
-                    self.img_path / "currentState.png"
-                )
-                image = load_cv2_img(
-                    self.img_path / "currentState.png", cv2.IMREAD_UNCHANGED
-                )
-
-                im_ranking = cropToRegion(image, roi)
-                im_ranking_bw = preprocessImage(im_ranking, 3, 90, 12, True)
-
-                ranking = ""
-
-                with PyTessBaseAPI(
-                    path=str(self.tesseract_path),
-                    psm=PSM.SINGLE_WORD,
-                    oem=OEM.LSTM_ONLY,
-                ) as api:
-                    api.SetImage(Image.fromarray(im_ranking_bw))  # type: ignore (pylance is messed up)
-                    ranking = api.GetUTF8Text()
-                    ranking = re.sub("[^0-9]", "", ranking)
-
-                if ranking == "" or to_int_check(ranking) != 999:
-                    self.output_handler(
-                        f"Duplicate governor detected, but current rank is {ranking}, trying a second time."
-                    )
-                    logging.log(
-                        logging.INFO,
-                        f"Duplicate governor detected, but current rank is {ranking}, trying a second time.",
-                    )
-
-                    # repeat scan with next governor
-                    gov_data = self.scan_governor(next_gov_to_scan, track_inactives)
-                else:
-                    if not last_two:
-                        last_two = True
-                        next_gov_to_scan = 998
-                        self.output_handler(
-                            "Duplicate governor detected, switching to scanning of last two governors."
-                        )
-                        logging.log(
-                            logging.INFO,
-                            "Duplicate governor detected, switching to scanning of last two governors.",
-                        )
-
-                        # repeat scan with next governor
-                        gov_data = self.scan_governor(next_gov_to_scan, track_inactives)
-                    else:
-                        self.output_handler(
-                            "Reached final governor on the screen. Scan complete."
-                        )
-                        logging.log(
-                            logging.INFO,
-                            "Reached final governor on the screen. Scan complete."
-                        )
-                        self.state_callback("Scan finished")
-                        return
-
-            now = datetime.datetime.now()
-            current_time = now.strftime("%H:%M:%S")
-
-            # Do normal validations
-            kills_ok = "Not Checked"
-            reconstruction_success = "Not Checked"
-            if validate_kills:
-                kills_ok = gov_data.validate_kills()
-                if not kills_ok and reconstruct_fails:
-                    reconstruction_success = gov_data.reconstruct_kills()
-
-                    if reconstruction_success:
-                        self.save_failed("kills", gov_data, True)
-                    else:
-                        self.save_failed("kills", gov_data, False)
-
-            power_ok = "Not Checked"
-            if validate_power:
-                # TODO: Respect threshold here
-                gov_power = to_int_check(gov_data.power)
-                if gov_power == 0:
-                    gov_power = -1
-
-                power_ok = (gov_power != -1) and (
-                    (last_gov_power == -1)
-                    or (to_int_check(gov_data.power) < last_gov_power)
-                )
-
-                if power_ok:
-                    last_gov_power = gov_power
-                else:
-                    self.save_failed("power", gov_data)
-
-            # Store full governor data for later CH checks - Add debug logging
-            if self.check_ch and gov_data.id != "Skipped":
-                self.output_handler(f"Processing governor {gov_data.name} (ID: {gov_data.id}) for CH check queue")
+            # First pass: Normal scan of all governors using parallel processing if enabled
+            if self._parallel_enabled and self._process_pool:
                 try:
-                    power = int(gov_data.power)
-                    if power >= 35000000:
-                        gov_data.city_hall = "25"
-                        self.output_handler(f"Governor {gov_data.name} (ID: {gov_data.id}) power {power:,} > 35M, assuming CH 25")
-                    else:
-                        self.output_handler(f"Adding governor {gov_data.name} (ID: {gov_data.id}) to CH check queue")
-                        governors_data_map[gov_data.id] = gov_data
-                        governors_to_check.append({
-                            "id": gov_data.id,
-                            "name": gov_data.name,
-                            "power": power
-                        })
-                except (ValueError, TypeError):
-                    self.output_handler(f"Adding governor {gov_data.name} (ID: {gov_data.id}) to CH check queue (power unknown)")
-                    governors_data_map[gov_data.id] = gov_data
-                    governors_to_check.append({
-                        "id": gov_data.id,
-                        "name": gov_data.name,
-                        "power": 0
-                    })
-
-            # Write initial results
-            data_handler.write_governor(gov_data)
-            data_handler.save()
-
-            additional_info = AdditionalData(
-                i + 1,
-                amount,
-                self.inactive_players,
-                str(power_ok),
-                str(kills_ok),
-                str(reconstruction_success),
-                self.get_remaining_time(amount - i),
-            )
-
-            self.gov_callback(gov_data, additional_info)
-
-        # Save final results from first pass
-        data_handler.save()
-        
-        # Make sure we're back at rankings view
-        self.adb_client.secure_adb_tap(rok_ui.tap_positions["back_button"])
-        wait_random_range(1, self.max_random_delay)
-        
-        # Second pass: Check City Hall levels if needed
-        if self.check_ch and governors_to_check:
-            total_to_check = len(governors_to_check)
-            self.state_callback(f"Starting City Hall level checks for {total_to_check} governors...")
-            self.output_handler(f"Starting CH level checks for {total_to_check} governors")
-            
-            for idx, gov in enumerate(governors_to_check):
-                if self.stop_scan:
-                    self.output_handler("CH Level Check Terminated! Saving progress...")
-                    break
-
-                gov_id = gov["id"]
-                gov_name = gov["name"]
-                
-                self.state_callback(f"Checking CH level for {gov_name} ({idx + 1}/{total_to_check})")
-                self.output_handler(f"Checking CH level for {gov_name}")
-                
-                ch_level = self.check_city_hall_level(gov_id)
-                
-                # Update CH level in the stored governor data
-                if gov_id in governors_data_map:
-                    gov_data = governors_data_map[gov_id]
-                    gov_data.city_hall = str(ch_level)
+                    scan_args = [(i, track_inactives) for i in range(j, amount)]
+                    results = self._process_pool.starmap(self.scan_governor, scan_args)
                     
-                    # Update progress for UI
-                    additional_info = AdditionalData(
-                        idx + 1,
-                        total_to_check,
-                        self.inactive_players,
-                        "Not Checked",
-                        "Not Checked",
-                        "Not Checked",
-                        self.get_remaining_time(total_to_check - idx),
-                    )
-                    
-                    self.output_handler(f"Governor {gov_name} (ID: {gov_id}) - CH level {ch_level}")
-                    
-                    if ch_level < self.min_ch_level:
-                        self.output_handler(f"Governor {gov_name} (ID: {gov_id}) - CH level {ch_level} below minimum {self.min_ch_level}")
-                        self.inactive_players += 1
+                    for i, gov_data in enumerate(results):
+                        if self.stop_scan:
+                            break
+                            
+                        if self.check_ch and gov_data.id != "Skipped":
+                            try:
+                                power = int(gov_data.power)
+                                if power >= 35000000:
+                                    gov_data.city_hall = "25"
+                                else:
+                                    governors_data_map[gov_data.id] = gov_data
+                                    governors_to_check.append({
+                                        "id": gov_data.id,
+                                        "name": gov_data.name,
+                                        "power": power
+                                    })
+                            except (ValueError, TypeError):
+                                governors_data_map[gov_data.id] = gov_data
+                                governors_to_check.append({
+                                    "id": gov_data.id,
+                                    "name": gov_data.name,
+                                    "power": 0
+                                })
 
+                        data_handler.write_governor(gov_data)
+                        data_handler.save()
+
+                        additional_info = AdditionalData(
+                            i + 1,
+                            amount,
+                            self.inactive_players,
+                            "Not Checked" if validate_kills else "Disabled",
+                            "Not Checked" if reconstruct_fails else "Disabled",
+                            "Not Checked" if validate_power else "Disabled",
+                            self.get_remaining_time(amount - i),
+                        )
+                        self.gov_callback(gov_data, additional_info)
+
+                except Exception as e:
+                    logger.error(f"Error in parallel processing: {e}")
+                    # Fall back to sequential processing
+                    self._parallel_enabled = False
+                    
+            if not self._parallel_enabled:
+                # Initialize variables for scan loop
+                next_gov_to_scan = j - 1  # Initialize to one less than starting point
+                last_gov_power = -1
+                last_two = False
+
+                # First pass: Normal scan of all governors
+                for i in range(j, amount):
+                    if self.stop_scan:
+                        self.output_handler("Scan Terminated! Saving the current progress...")
+                        break
+
+                    next_gov_to_scan = max(next_gov_to_scan + 1, i)
+                    gov_data = self.scan_governor(next_gov_to_scan, track_inactives)
+
+                    # Check for duplicate governor
+                    if data_handler.is_duplicate(to_int_check(gov_data.id)):
+                        roi = (196, 698, 52, 27)
+                        self.adb_client.secure_adb_screencap().save(
+                            self.img_path / "currentState.png"
+                        )
+                        image = load_cv2_img(
+                            self.img_path / "currentState.png", cv2.IMREAD_UNCHANGED
+                        )
+
+                        im_ranking = cropToRegion(image, roi)
+                        im_ranking_bw = preprocessImage(im_ranking, 3, 90, 12, True)
+
+                        ranking = ""
+
+                        with PyTessBaseAPI(
+                            path=str(self.tesseract_path),
+                            psm=PSM.SINGLE_WORD,
+                            oem=OEM.LSTM_ONLY,
+                        ) as api:
+                            api.SetImage(Image.fromarray(im_ranking_bw))  # type: ignore (pylance is messed up)
+                            ranking = api.GetUTF8Text()
+                            ranking = re.sub("[^0-9]", "", ranking)
+
+                        if ranking == "" or to_int_check(ranking) != 999:
+                            self.output_handler(
+                                f"Duplicate governor detected, but current rank is {ranking}, trying a second time."
+                            )
+                            logging.log(
+                                logging.INFO,
+                                f"Duplicate governor detected, but current rank is {ranking}, trying a second time.",
+                            )
+
+                            # repeat scan with next governor
+                            gov_data = self.scan_governor(next_gov_to_scan, track_inactives)
+                        else:
+                            if not last_two:
+                                last_two = True
+                                next_gov_to_scan = 998
+                                self.output_handler(
+                                    "Duplicate governor detected, switching to scanning of last two governors."
+                                )
+                                logging.log(
+                                    logging.INFO,
+                                    "Duplicate governor detected, switching to scanning of last two governors.",
+                                )
+
+                                # repeat scan with next governor
+                                gov_data = self.scan_governor(next_gov_to_scan, track_inactives)
+                            else:
+                                self.output_handler(
+                                    "Reached final governor on the screen. Scan complete."
+                                )
+                                logging.log(
+                                    logging.INFO,
+                                    "Reached final governor on the screen. Scan complete."
+                                )
+                                self.state_callback("Scan finished")
+                                return
+
+                    now = datetime.datetime.now()
+                    current_time = now.strftime("%H:%M:%S")
+
+                    # Do normal validations
+                    kills_ok = "Not Checked"
+                    reconstruction_success = "Not Checked"
+                    if validate_kills:
+                        kills_ok = gov_data.validate_kills()
+                        if not kills_ok and reconstruct_fails:
+                            reconstruction_success = gov_data.reconstruct_kills()
+
+                            if reconstruction_success:
+                                self.save_failed("kills", gov_data, True)
+                            else:
+                                self.save_failed("kills", gov_data, False)
+
+                    power_ok = "Not Checked"
+                    if validate_power:
+                        # TODO: Respect threshold here
+                        gov_power = to_int_check(gov_data.power)
+                        if gov_power == 0:
+                            gov_power = -1
+
+                        power_ok = (gov_power != -1) and (
+                            (last_gov_power == -1)
+                            or (to_int_check(gov_data.power) < last_gov_power)
+                        )
+
+                        if power_ok:
+                            last_gov_power = gov_power
+                        else:
+                            self.save_failed("power", gov_data)
+
+                    # Store full governor data for later CH checks - Add debug logging
+                    if self.check_ch and gov_data.id != "Skipped":
+                        self.output_handler(f"Processing governor {gov_data.name} (ID: {gov_data.id}) for CH check queue")
+                        try:
+                            power = int(gov_data.power)
+                            if power >= 35000000:
+                                gov_data.city_hall = "25"
+                                self.output_handler(f"Governor {gov_data.name} (ID: {gov_data.id}) power {power:,} > 35M, assuming CH 25")
+                            else:
+                                self.output_handler(f"Adding governor {gov_data.name} (ID: {gov_data.id}) to CH check queue")
+                                governors_data_map[gov_data.id] = gov_data
+                                governors_to_check.append({
+                                    "id": gov_data.id,
+                                    "name": gov_data.name,
+                                    "power": power
+                                })
+                        except (ValueError, TypeError):
+                            self.output_handler(f"Adding governor {gov_data.name} (ID: {gov_data.id}) to CH check queue (power unknown)")
+                            governors_data_map[gov_data.id] = gov_data
+                            governors_to_check.append({
+                                "id": gov_data.id,
+                                "name": gov_data.name,
+                                "power": 0
+                            })
+
+                    # Write initial results
                     data_handler.write_governor(gov_data)
                     data_handler.save()
-                    
+
+                    additional_info = AdditionalData(
+                        i + 1,
+                        amount,
+                        self.inactive_players,
+                        str(power_ok),
+                        str(kills_ok),
+                        str(reconstruction_success),
+                        self.get_remaining_time(amount - i),
+                    )
+
                     self.gov_callback(gov_data, additional_info)
+
+            # Save final results from first pass
+            data_handler.save()
+            
+            # Make sure we're back at rankings view
+            self.adb_client.secure_adb_tap(rok_ui.tap_positions["back_button"])
+            wait_random_range(1, self.max_random_delay)
+            
+            # Second pass: Check City Hall levels if needed
+            if self.check_ch and governors_to_check:
+                total_to_check = len(governors_to_check)
+                self.state_callback(f"Starting City Hall level checks for {total_to_check} governors...")
+                self.output_handler(f"Starting CH level checks for {total_to_check} governors")
                 
+                for idx, gov in enumerate(governors_to_check):
+                    if self.stop_scan:
+                        self.output_handler("CH Level Check Terminated! Saving progress...")
+                        break
+
+                    gov_id = gov["id"]
+                    gov_name = gov["name"]
+                    
+                    self.state_callback(f"Checking CH level for {gov_name} ({idx + 1}/{total_to_check})")
+                    self.output_handler(f"Checking CH level for {gov_name}")
+                    
+                    ch_level = self.check_city_hall_level(gov_id)
+                    
+                    # Update CH level in the stored governor data
+                    if gov_id in governors_data_map:
+                        gov_data = governors_data_map[gov_id]
+                        gov_data.city_hall = str(ch_level)
+                        
+                        # Update progress for UI
+                        additional_info = AdditionalData(
+                            idx + 1,
+                            total_to_check,
+                            self.inactive_players,
+                            "Not Checked",
+                            "Not Checked",
+                            "Not Checked",
+                            self.get_remaining_time(total_to_check - idx),
+                        )
+                        
+                        self.output_handler(f"Governor {gov_name} (ID: {gov_id}) - CH level {ch_level}")
+                        
+                        if ch_level < self.min_ch_level:
+                            self.output_handler(f"Governor {gov_name} (ID: {gov_id}) - CH level {ch_level} below minimum {self.min_ch_level}")
+                            self.inactive_players += 1
+
+                        data_handler.write_governor(gov_data)
+                        data_handler.save()
+                        
+                        self.gov_callback(gov_data, additional_info)
+                    
+                    self.adb_client.secure_adb_tap(rok_ui.tap_positions["back_button"])
+                    wait_random_range(1.0, 0.5)
+                    
+                    wait_random_range(0.75, 0.5)
+
                 self.adb_client.secure_adb_tap(rok_ui.tap_positions["back_button"])
-                wait_random_range(1.0, 0.5)
-                
-                wait_random_range(0.75, 0.5)
+                wait_random_range(1, self.max_random_delay)
+                self.adb_client.secure_adb_tap(rok_ui.tap_positions["back_button"]) 
+                wait_random_range(1, self.max_random_delay)
+                self.adb_client.secure_adb_tap(rok_ui.tap_positions["back_button"])
+                wait_random_range(1, self.max_random_delay)
 
-            self.adb_client.secure_adb_tap(rok_ui.tap_positions["back_button"])
-            wait_random_range(1, self.max_random_delay)
-            self.adb_client.secure_adb_tap(rok_ui.tap_positions["back_button"]) 
-            wait_random_range(1, self.max_random_delay)
-            self.adb_client.secure_adb_tap(rok_ui.tap_positions["back_button"])
-            wait_random_range(1, self.max_random_delay)
+            self.output_handler("Scan and CH checks complete.")
+            logging.log(logging.INFO, "Scan and CH checks complete.")
+            self.adb_client.kill_adb()
+            self.state_callback("All scans finished")
+            return
 
-        self.output_handler("Scan and CH checks complete.")
-        logging.log(logging.INFO, "Scan and CH checks complete.")
-        self.adb_client.kill_adb()
-        self.state_callback("All scans finished")
-        return
+        except Exception as error:
+            logger.error(f"Error during scan: {error}")
+            raise error
+        finally:
+            if self._process_pool:
+                self._process_pool.terminate()
+                self._process_pool = None
+            self.cleanup()
+
+    def cleanup(self):
+        """Clean up resources"""
+        try:
+            if self._process_pool:
+                self._process_pool.terminate()
+                self._process_pool = None
+            self.adb_client.kill_adb()
+            
+            # Clear temporary images
+            for img_file in self.img_path.glob("*.png"):
+                try:
+                    img_file.unlink()
+                except Exception as e:
+                    logger.warning(f"Failed to delete temporary image {img_file}: {e}")
+                    
+        except Exception as e:
+            logger.error(f"Cleanup error: {e}")
 
     def end_scan(self):
+        """Terminate scan gracefully"""
         self.stop_scan = True
+        self.cleanup()

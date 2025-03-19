@@ -1,5 +1,6 @@
 import math
 import time
+import logging
 
 from cv2.typing import MatLike
 from dummy_root import get_app_root
@@ -15,6 +16,7 @@ from roktracker.utils.output_formats import OutputFormats
 from tesserocr import PyTessBaseAPI, PSM, OEM  # type: ignore
 from typing import Callable, List
 
+logger = logging.getLogger(__name__)
 
 def default_batch_callback(govs: List[GovernorData], extra: AdditionalData) -> None:
     pass
@@ -41,6 +43,7 @@ class AllianceScanner:
         self.screens_needed = 0
 
         self.max_random_delay = config["scan"]["timings"]["max_random"]
+        self.port = port  # Store port for reconnection attempts
 
         # TODO: Load paths from config
         self.root_dir = get_app_root()
@@ -54,12 +57,45 @@ class AllianceScanner:
         self.state_callback = default_state_callback
         self.output_handler = default_output_handler
 
-        self.adb_client = AdvancedAdbClient(
-            str(self.root_dir / "deps" / "platform-tools" / "adb.exe"),
-            port,
-            config["general"]["emulator"],
-            self.root_dir / "deps" / "inputs",
-        )
+        # Initialize ADB with retry logic
+        retry_count = 0
+        max_retries = 3
+        last_error = None
+        
+        while retry_count < max_retries:
+            try:
+                self.adb_client = AdvancedAdbClient(
+                    str(self.root_dir / "deps" / "platform-tools" / "adb.exe"),
+                    port,
+                    config["general"]["emulator"],
+                    self.root_dir / "deps" / "inputs",
+                )
+                # Test connection
+                self.adb_client.start_adb()
+                break
+            except Exception as e:
+                last_error = e
+                retry_count += 1
+                if retry_count < max_retries:
+                    time.sleep(2)  # Wait before retry
+                    continue
+                
+                # Enhanced error details on final retry
+                error_msg = f"Failed to initialize ADB after {max_retries} attempts. "
+                if "No such file" in str(e):
+                    error_msg += "ADB executable not found. Verify platform-tools are installed."
+                elif "cannot connect" in str(e).lower():
+                    error_msg += f"Could not connect to port {port}. Verify emulator is running."
+                elif "permission denied" in str(e).lower():
+                    error_msg += "Permission denied. Try running as administrator."
+                else:
+                    error_msg += f"Error: {str(e)}"
+                raise Exception(error_msg) from last_error
+
+        # Performance settings
+        self._image_optimization = config.get("performance", {}).get("image_optimization", True)
+        self._image_quality = config.get("performance", {}).get("image_quality", 85)
+        self.cached_results = []
 
     def set_batch_callback(
         self, cb: Callable[[List[GovernorData], AdditionalData], None]
@@ -165,6 +201,13 @@ class AllianceScanner:
 
                 govs.append(GovernorData(gov_img_path, gov_name, gov_score))
 
+        # Apply image optimization if enabled
+        if self._image_optimization:
+            self._optimize_images()
+
+        # Store results for caching
+        self.cached_results.extend(govs)
+
         return govs
 
     def start_scan(self, kingdom: str, amount: int, formats: OutputFormats):
@@ -220,3 +263,50 @@ class AllianceScanner:
 
     def end_scan(self) -> None:
         self.stop_scan = True
+        self.cleanup()
+
+    def get_results(self):
+        """Get scan results for caching"""
+        return self.cached_results
+
+    def set_performance_options(self, options):
+        """Set performance options"""
+        self._image_optimization = options.get("image_optimization", True)
+        self._image_quality = options.get("image_quality", 85)
+
+    def _optimize_images(self):
+        """Optimize captured images to reduce memory usage"""
+        try:
+            for img_file in self.img_path.glob("*.png"):
+                try:
+                    image = cv2.imread(str(img_file))
+                    if image is not None:
+                        # Resize if image is too large
+                        if image.shape[0] > 1080 or image.shape[1] > 1920:
+                            scale = min(1080/image.shape[0], 1920/image.shape[1])
+                            new_size = (int(image.shape[1] * scale), int(image.shape[0] * scale))
+                            image = cv2.resize(image, new_size, interpolation=cv2.INTER_AREA)
+                        
+                        # Compress image with configured quality
+                        encode_params = [cv2.IMWRITE_PNG_COMPRESSION, self._image_quality]
+                        _, encoded = cv2.imencode(".png", image, encode_params)
+                        encoded.tofile(str(img_file))
+                except Exception as e:
+                    logger.warning(f"Failed to optimize image {img_file}: {e}")
+        except Exception as e:
+            logger.error(f"Image optimization error: {e}")
+
+    def cleanup(self):
+        """Clean up resources"""
+        try:
+            self.adb_client.kill_adb()
+            
+            # Clear temporary images
+            for img_file in self.img_path.glob("*.png"):
+                try:
+                    img_file.unlink()
+                except Exception as e:
+                    logger.warning(f"Failed to delete temporary image {img_file}: {e}")
+                    
+        except Exception as e:
+            logger.error(f"Cleanup error: {e}")

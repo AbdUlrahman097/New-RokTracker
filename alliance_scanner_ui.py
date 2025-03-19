@@ -56,7 +56,6 @@ def to_int_or(element, alternative):
     except ValueError:
         return alternative
 
-# Convert CheckboxFrame class to use PyQt
 from typing import List, Dict, Any, TypedDict
 
 class CheckboxValue(TypedDict):
@@ -67,7 +66,6 @@ class CheckboxValue(TypedDict):
 class CheckboxFrame(QFrame):
     def __init__(self, parent, values: List[CheckboxValue], groupName: str):
         super().__init__(parent)
-        # Properly type the filter lambda
         self.values = [x for x in values if x["group"] == groupName]
         self.checkboxes: List[QCheckBox] = []
         layout = QVBoxLayout(self)
@@ -87,7 +85,6 @@ class CheckboxFrame(QFrame):
             values.update({checkbox.text(): checkbox.isChecked()})
         return values
 
-# Convert HorizontalCheckboxFrame class to use PyQt
 class HorizontalCheckboxFrame(QFrame):
     def __init__(self, parent, values: List[CheckboxValue], groupName: str, options_per_row: int):
         super().__init__(parent)
@@ -96,7 +93,6 @@ class HorizontalCheckboxFrame(QFrame):
         
         layout = QGridLayout(self)
         
-        # In QGridLayout, the order is (row, column)
         for i, value in enumerate(self.values):
             col = i % options_per_row
             row = (i // options_per_row) * 2
@@ -125,15 +121,13 @@ class BasicOptionsFame(QFrame):
         super().__init__(parent)
         self.config = config
 
-        # Set validators with ranges
-        self.port_validator = QIntValidator(1024, 65535)  # Common port range
-        self.amount_validator = QIntValidator(1, 10000)   # Reasonable scan amount range
+        self.port_validator = QIntValidator(1024, 65535)
+        self.amount_validator = QIntValidator(1, 10000)
 
         main_layout = QVBoxLayout(self)
-        main_layout.setSpacing(15)  # Add space between sections
+        main_layout.setSpacing(15)
         self.setLayout(main_layout)
 
-        # Scan Settings Group
         scan_group = QGroupBox("Scan Settings")
         scan_layout = QGridLayout()
         scan_layout.setSpacing(10)
@@ -160,7 +154,6 @@ class BasicOptionsFame(QFrame):
 
         main_layout.addWidget(scan_group)
 
-        # Connection Settings Group
         connection_group = QGroupBox("Connection Settings")
         connection_layout = QGridLayout()
         connection_layout.setSpacing(10)
@@ -182,7 +175,6 @@ class BasicOptionsFame(QFrame):
 
         main_layout.addWidget(connection_group)
 
-        # Output Settings Group
         output_group = QGroupBox("Output Formats")
         output_layout = QVBoxLayout()
         output_group.setLayout(output_layout)
@@ -209,10 +201,8 @@ class BasicOptionsFame(QFrame):
 
         main_layout.addWidget(output_group)
         
-        # Add some stretching space at the bottom
         main_layout.addStretch()
 
-        # Set tab order for keyboard navigation
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.scan_name_text.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.bluestacks_instance_text.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -353,7 +343,6 @@ class LastBatchInfo(QFrame):
         main_layout.setSpacing(15)
         self.setLayout(main_layout)
 
-        # Status Group
         status_group = QGroupBox("Current Status")
         status_layout = QVBoxLayout()
         status_group.setLayout(status_layout)
@@ -363,7 +352,6 @@ class LastBatchInfo(QFrame):
 
         main_layout.addWidget(status_group)
 
-        # Governors Group
         govs_group = QGroupBox("Current Batch")
         govs_layout = QVBoxLayout()
         govs_layout.setSpacing(8)
@@ -382,7 +370,6 @@ class LastBatchInfo(QFrame):
             label = QLabel()
             entry = QLabel()
             
-            # Set minimum width for better alignment
             label.setMinimumWidth(150)
             entry.setMinimumWidth(80)
             
@@ -416,31 +403,25 @@ class App(QMainWindow):
     
     def __init__(self):
         super().__init__()
-        # Enable Qt attributes for better performance
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
         
-        # Thread safety
         self.ui_mutex = QMutex()
         self.scanner_thread = None
         self.alliance_scanner = None
 
-        # Initialize system tray
         self.tray_icon = QSystemTrayIcon(self)
         self.tray_icon.setIcon(QIcon("images/alliance.png"))
         self.tray_icon.setToolTip("Alliance Scanner")
         self.tray_icon.show()
         
-        # Setup signal connection
         self.update_ui_signal.connect(self.update_ui_safely)
         self.setup_ui()
 
     def show_notification(self, title: str, message: str, icon=QSystemTrayIcon.MessageIcon.Information):
         """Show both a system notification and a message box"""
-        # System tray notification
         self.tray_icon.showMessage(title, message, icon, 5000)
 
-        # Message box (use critical for errors, information for success)
         if icon == QSystemTrayIcon.MessageIcon.Critical:
             QMessageBox.critical(self, title, message)
         else:
@@ -464,7 +445,6 @@ class App(QMainWindow):
             except:
                 logger.error("Failed to join scanner thread")
         
-        # Clean up references
         self.scanner_thread = None
         self.update_ui_signal.disconnect()
         
@@ -495,7 +475,7 @@ class App(QMainWindow):
             return
 
         self.setWindowTitle("Alliance Scanner")
-        self.setGeometry(100, 100, 800, 500)  # Increased window size
+        self.setGeometry(100, 100, 800, 500)
 
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -504,7 +484,6 @@ class App(QMainWindow):
         main_layout.setSpacing(20)
         main_layout.setContentsMargins(20, 20, 20, 20)
 
-        # Left side - Options
         left_panel = QWidget()
         left_layout = QVBoxLayout()
         left_layout.setSpacing(15)
@@ -513,7 +492,6 @@ class App(QMainWindow):
         self.options_frame = BasicOptionsFame(self, self.config)
         left_layout.addWidget(self.options_frame)
 
-        # Control buttons
         buttons_layout = QHBoxLayout()
         buttons_layout.setSpacing(10)
 
@@ -529,7 +507,6 @@ class App(QMainWindow):
 
         left_layout.addLayout(buttons_layout)
 
-        # Right side - Status and Progress
         right_panel = QWidget()
         right_layout = QVBoxLayout()
         right_layout.setSpacing(15)
@@ -538,7 +515,6 @@ class App(QMainWindow):
         self.last_batch_frame = LastBatchInfo(self, 6)
         right_layout.addWidget(self.last_batch_frame)
 
-        # Progress section
         progress_group = QGroupBox("Scan Progress")
         progress_layout = QVBoxLayout()
         progress_layout.setSpacing(10)
@@ -555,20 +531,17 @@ class App(QMainWindow):
 
         right_layout.addWidget(progress_group)
 
-        # Add panels to main layout with size policies
         left_panel.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
         right_panel.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         main_layout.addWidget(left_panel, stretch=4)
         main_layout.addWidget(right_panel, stretch=6)
 
-        # Set proper tab order for keyboard navigation
         QWidget.setTabOrder(self.options_frame.scan_name_text, self.options_frame.bluestacks_instance_text)
         QWidget.setTabOrder(self.options_frame.bluestacks_instance_text, self.options_frame.adb_port_text)
         QWidget.setTabOrder(self.options_frame.adb_port_text, self.options_frame.scan_amount_text)
         QWidget.setTabOrder(self.options_frame.scan_amount_text, self.start_scan_button)
         QWidget.setTabOrder(self.start_scan_button, self.end_scan_button)
 
-        # Set initial focus
         self.options_frame.scan_name_text.setFocus()
 
     def close_program(self):
@@ -591,7 +564,7 @@ class App(QMainWindow):
             self.scanner_thread = Thread(
                 target=self.launch_scanner,
                 name="ScannerThread",
-                daemon=True  # Make thread daemon so it doesn't prevent app exit
+                daemon=True
             )
             self.scanner_thread.start()
 
@@ -696,7 +669,6 @@ class App(QMainWindow):
                 "message": "The scan has been completed successfully."
             })
         finally:
-            # Reset end scan button
             self.end_scan_button.setEnabled(True)
             self.end_scan_button.setText("End scan")
             self.start_scan_button.setEnabled(True)
@@ -723,7 +695,6 @@ class App(QMainWindow):
                 progress_value = round((progress["current"] / progress["total"]) * 100)
                 self.progress_bar.setValue(progress_value)
                 
-                # Flash taskbar on major progress milestones
                 if progress_value in [25, 50, 75, 100]:
                     self.tray_icon.showMessage(
                         "Scan Progress",
@@ -746,7 +717,6 @@ class App(QMainWindow):
             "eta": extra_data.eta(),
         })
 
-        # Use signal to update UI safely from thread
         self.update_ui_signal.emit({"batch_data": batch_data})
         
         total_pages = extra_data.target_governor // extra_data.govs_per_page
@@ -780,9 +750,3 @@ class OutputFormats:
             "csv": self.csv,
             "jsonl": self.jsonl,
         }
-
-
-app = QApplication(sys.argv)
-window = App()
-window.show()
-sys.exit(app.exec())
